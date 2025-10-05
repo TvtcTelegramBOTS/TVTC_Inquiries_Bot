@@ -1,1 +1,1 @@
-web: python bot.py --port 5000
+web: python Bot.py --port 5000
