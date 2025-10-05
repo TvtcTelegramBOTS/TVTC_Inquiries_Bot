@@ -1,0 +1,2 @@
+python-telegram-bot==20.6
+PyPDF2==3.0.1
