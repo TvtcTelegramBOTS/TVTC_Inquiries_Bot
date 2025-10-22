@@ -554,51 +554,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚠️ يرجى إدخال رقم تدريبي صحيح يبدأ بـ 44 أو اختر خدمة من الأزرار.")
 
 # =========================
-# خادم HTTP لحالة البوت
-# =========================
-class BotStatusHandler(BaseHTTPRequestHandler):
-    def _set_headers(self, code=200, ctype="application/json"):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype + "; charset=utf-8")
-        self.end_headers()
-
-    def log_message(self, fmt, *args):
-        line = "%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), fmt % args)
-        print(line, flush=True)
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        if parsed.path == "/status":
-            self._set_headers(200)
-            data = _get_status()
-            payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
-            self.wfile.write(payload)
-            self.log_message('GET /status 200')
-        elif parsed.path == "/stop":
-            self._set_headers(200)
-            self.wfile.write(json.dumps({"ok": True}, ensure_ascii=False).encode("utf-8"))
-            self.log_message('GET /stop 200 -> stopping')
-            def _killer():
-                time.sleep(0.5)
-                os._exit(0)
-            threading.Thread(target=_killer, daemon=True).start()
-        else:
-            self._set_headers(404)
-            self.wfile.write(json.dumps({"error": "not found"}, ensure_ascii=False).encode("utf-8"))
-            self.log_message('GET %s 404', parsed.path)
-
-def run_status_server():
-    server = HTTPServer(("127.0.0.1", 8080), BotStatusHandler)
-    print("🌐 HTTP status server started at http://127.0.0.1:8080", flush=True)
-    server.serve_forever()
-
-# =========================
 # التشغيل الرئيسي
 # =========================
 def main():
     _set_status(running=True, telegram_connected=False)
-    # شغّل خادم الحالة أولاً
-    threading.Thread(target=run_status_server, daemon=True).start()
     # شغّل الفهرسة بالخلفية
     threading.Thread(target=initialize_indexes, daemon=True).start()
 
