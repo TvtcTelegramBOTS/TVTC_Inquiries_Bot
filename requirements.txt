@@ -1,10 +1,4 @@
 python-telegram-bot==20.6
-PyPDF2==3.0.1
-Flask==2.0.1
 pandas
-PyPDF2
+PyPDF2==3.0.1
 requests
-tk
-customtkinter
-pyTelegramBotAPI==4.14.0
-
