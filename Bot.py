@@ -105,7 +105,7 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
 
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            for match in re.findall(r\"\\b44\\d{7}\\b\", text):
+            for match in re.findall(r"\b44\d{7}\b", text):
                 index.setdefault(match, []).append(i-1)  # صفر-مؤشر
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
@@ -145,7 +145,7 @@ def build_majors_index(pdf_path, index_path=\"majors_index.json\"):
 
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or \"\"
-            student_ids = re.findall(r\"\\b44\\d{7}\\b\", text)
+            student_ids = re.findall(r"\b44\d{7}\b", text)
             if student_ids:
                 for sid in student_ids:
                     index[sid] = text
@@ -180,7 +180,7 @@ def build_index(pdf_path):
 
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or \"\"
-            for m in re.findall(r\"\\b44\\d{7}\\b\", text):
+            for m in re.findall(r"\b44\d{7}\b", text):
                 if m not in index:
                     index[m] = i-1
             percent = (i / total_pages) * 100
