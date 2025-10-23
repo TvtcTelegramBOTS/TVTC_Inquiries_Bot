@@ -118,7 +118,7 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
             m.write(str(os.path.getmtime(pdf_path)))
 
         elapsed = time.time() - start_time
-        print(f"✅ تم بناء فهرس remaining ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.\", flush=True)
+        print(f"✅ تم بناء فهرس remaining ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
         return index
     except Exception as e:
         print("❌ خطأ أثناء فهرسة remaining:\", e, flush=True)
