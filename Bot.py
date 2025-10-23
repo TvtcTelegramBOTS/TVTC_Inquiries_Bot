@@ -121,7 +121,7 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         print(f"✅ تم بناء فهرس remaining ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
         return index
     except Exception as e:
-        print("❌ خطأ أثناء فهرسة remaining:\", e, flush=True)
+        print("❌ خطأ أثناء فهرسة remaining:", e, flush=True)
         import traceback; traceback.print_exc()
         return {}
     finally:
@@ -134,11 +134,11 @@ def build_majors_index(pdf_path, index_path=\"majors_index.json\"):
             pdf_mtime = os.path.getmtime(pdf_path)
             meta_mtime = float(open(meta_path, \"r\").read())
             if pdf_mtime <= meta_mtime:
-                print(f\"✅ فهرس التخصصات جاهز مسبقًا.\", flush=True)
+                print(f"✅ فهرس التخصصات جاهز مسبقًا.\", flush=True)
                 with open(index_path, \"r\", encoding=\"utf-8\") as f:
                     return json.load(f)
 
-        print(f\"🔍 بناء فهرس التخصصات {pdf_path} ...\", flush=True)
+        print(f"🔍 بناء فهرس التخصصات {pdf_path} ...\", flush=True)
         reader = PdfReader(pdf_path)
         index = {}
         total_pages = len(reader.pages)
@@ -151,7 +151,7 @@ def build_majors_index(pdf_path, index_path=\"majors_index.json\"):
                     index[sid] = text
             if i % 10 == 0 or i == total_pages:
                 percent = (i / total_pages) * 100
-                print(f\"📄 فهرسة الصفحة {i}/{total_pages} ({percent:.1f}%)\", flush=True)
+                print(f"📄 فهرسة الصفحة {i}/{total_pages} ({percent:.1f}%)\", flush=True)
                 time.sleep(0.01)
 
         with open(index_path, \"w\", encoding=\"utf-8\") as f:
@@ -159,7 +159,7 @@ def build_majors_index(pdf_path, index_path=\"majors_index.json\"):
         with open(meta_path, \"w\") as m:
             m.write(str(os.path.getmtime(pdf_path)))
 
-        print(f\"✅ تم بناء فهرس التخصصات ({len(index)} متدرب).\", flush=True)
+        print(f"✅ تم بناء فهرس التخصصات ({len(index)} متدرب).\", flush=True)
         return index
     except Exception as e:
         print("❌ خطأ أثناء فهرسة التخصصات:\", e, flush=True)
@@ -170,9 +170,9 @@ def build_index(pdf_path):
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
         if not os.path.exists(pdf_path):
-            print(f\"⚠️ الملف {pdf_path} غير موجود.\", flush=True)
+            print(f"⚠️ الملف {pdf_path} غير موجود.\", flush=True)
             return {}
-        print(f\"⏳ فهرسة (index) الملف: {pdf_path}\", flush=True)
+        print(f"⏳ فهرسة (index) الملف: {pdf_path}\", flush=True)
         reader = PdfReader(pdf_path)
         total_pages = len(reader.pages)
         index = {}
@@ -185,11 +185,11 @@ def build_index(pdf_path):
                     index[m] = i-1
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
-            print(f\"فهرسة index: الصفحة {i}/{total_pages} ({percent:.1f}%)\", flush=True)
+            print(f"فهرسة index: الصفحة {i}/{total_pages} ({percent:.1f}%)\", flush=True)
             time.sleep(0.01)
 
         elapsed = time.time() - start_time
-        print(f\"✅ تم فهرسة {pdf_path} ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.\", flush=True)
+        print(f"✅ تم فهرسة {pdf_path} ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.\", flush=True)
         return index
     except Exception as e:
         print("❌ خطأ أثناء فهرسة:\", e, flush=True)
@@ -244,7 +244,7 @@ def _gs_binary():
 
 def compress_pdf_with_ghostscript(input_file: str, output_file: str, max_size_mb: float = 3.0):
     \"\"\"ضغط PDF بواسطة Ghostscript مع خطة بديلة.\"\"\"
-    print(f\"⏳ ضغط الملف {input_file} ...\", flush=True)
+    print(f"⏳ ضغط الملف {input_file} ...\", flush=True)
     try:
         command = [
             _gs_binary(), \"-sDEVICE=pdfwrite\", \"-dCompatibilityLevel=1.4\",
@@ -253,10 +253,10 @@ def compress_pdf_with_ghostscript(input_file: str, output_file: str, max_size_mb
         ]
         subprocess.run(command, check=True)
         size_mb = os.path.getsize(output_file) / (1024 * 1024)
-        print(f\"✅ تم ضغط الملف ({size_mb:.2f} MB) باستخدام إعداد /ebook\", flush=True)
+        print(f"✅ تم ضغط الملف ({size_mb:.2f} MB) باستخدام إعداد /ebook\", flush=True)
         return True
     except Exception as e:
-        print(f\"⚠️ فشل الضغط الأول ({e})، تجربة إعداد /screen...\", flush=True)
+        print(f"⚠️ فشل الضغط الأول ({e})، تجربة إعداد /screen...\", flush=True)
         try:
             command = [
                 _gs_binary(), \"-sDEVICE=pdfwrite\", \"-dCompatibilityLevel=1.4\",
@@ -265,10 +265,10 @@ def compress_pdf_with_ghostscript(input_file: str, output_file: str, max_size_mb
             ]
             subprocess.run(command, check=True)
             size_mb = os.path.getsize(output_file) / (1024 * 1024)
-            print(f\"✅ تم ضغط الملف ({size_mb:.2f} MB) باستخدام إعداد /screen\", flush=True)
+            print(f"✅ تم ضغط الملف ({size_mb:.2f} MB) باستخدام إعداد /screen\", flush=True)
             return True
         except Exception as e2:
-            print(f\"❌ فشل الضغط تمامًا ({e2})، سيتم استخدام النسخة الأصلية.\", flush=True)
+            print(f"❌ فشل الضغط تمامًا ({e2})، سيتم استخدام النسخة الأصلية.\", flush=True)
             return False
 
 # =========================
@@ -284,7 +284,7 @@ async def send_advisor(update, context, student_id):
         df = pd.read_csv(csv_path, encoding='utf-8', dtype=str)
     except Exception as e:
         await sent_msg.delete()
-        await update.message.reply_text(f\"❌ خطأ في قراءة ملف المرشدين: {e}\")
+        await update.message.reply_text(f"❌ خطأ في قراءة ملف المرشدين: {e}\")
         return
 
     advisor_name = None
@@ -301,7 +301,7 @@ async def send_advisor(update, context, student_id):
                 break
     await sent_msg.delete()
     if advisor_name:
-        await update.message.reply_text(f\"👨‍🏫 مرشدك التدريبي هو:\nأ. {advisor_name}\")
+        await update.message.reply_text(f"👨‍🏫 مرشدك التدريبي هو:\nأ. {advisor_name}\")
     else:
         await update.message.reply_text(\"⚠️ لم يتم العثور على اسم المرشد.\")
 
@@ -326,12 +326,12 @@ async def send_gpa(update, context, student_id):
                 break
     except Exception as e:
         await sent_msg.delete()
-        await update.message.reply_text(f\"❌ خطأ في قراءة ملف المعدل: {e}\")
+        await update.message.reply_text(f"❌ خطأ في قراءة ملف المعدل: {e}\")
         return
 
     await sent_msg.delete()
     if gpa_value:
-        await update.message.reply_text(f\"🎓 معدلك هو: {gpa_value}\")
+        await update.message.reply_text(f"🎓 معدلك هو: {gpa_value}\")
     else:
         await update.message.reply_text(\"⚠️ لم يتم العثور على المعدل.\")
 
@@ -365,7 +365,7 @@ async def send_detailed_plan(update, context, student_id):
         with open(index_path, \"r\", encoding=\"utf-8\") as f:
             majors_index = json.load(f)
     except Exception as e:
-        await update.message.reply_text(f\"❌ خطأ في قراءة فهرس التخصصات: {e}\")
+        await update.message.reply_text(f"❌ خطأ في قراءة فهرس التخصصات: {e}\")
         return
 
     if student_id not in majors_index:
@@ -388,7 +388,7 @@ async def send_detailed_plan(update, context, student_id):
         with open(plan_file_to_send, \"rb\") as f:
             await update.message.reply_document(f, filename=os.path.basename(plan_file_to_send), caption=caption)
     except Exception as e:
-        await update.message.reply_text(f\"❌ تعذر إرسال الملف: {e}\")
+        await update.message.reply_text(f"❌ تعذر إرسال الملف: {e}\")
 
 async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: str):
     student_id = context.user_data.get(\"student_id\")
@@ -427,7 +427,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             pages = index.get(student_id, [])
             if not pages:
                 await sent_msg.delete()
-                await update.message.reply_text(f\"❌ لم يتم العثور على مقررات المتدرب {student_id}.\")
+                await update.message.reply_text(f"❌ لم يتم العثور على مقررات المتدرب {student_id}.\")
                 return
             for i in pages:
                 writer.add_page(reader.pages[i])
@@ -471,7 +471,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             caption=captions.get(service, f\"📄 ملف {service} للمتدرب {student_id}\")
         )
     except Exception as e:
-        await update.message.reply_text(f\"❌ حدث خطأ أثناء تجهيز الملف: {e}\")
+        await update.message.reply_text(f"❌ حدث خطأ أثناء تجهيز الملف: {e}\")
         import traceback; traceback.print_exc()
     finally:
         await sent_msg.delete()
@@ -496,7 +496,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or \"\").strip()
     student_id = convert_arabic_to_english(txt)
     _set_status(last_user=student_id)
-    print(f\"💬 المستخدم: {txt}\", flush=True)
+    print(f"💬 المستخدم: {txt}\", flush=True)
 
     # تسجيل الخروج
     if txt == \"📤 تسجيل الخروج\":
@@ -638,11 +638,11 @@ def main():
     async def post_init(application):
         try:
             me = await application.bot.get_me()
-            print(f\" معلومات البوت: @{me.username} (id={me.id})\", flush=True)
+            print(f" معلومات البوت: @{me.username} (id={me.id})\", flush=True)
             _set_status(telegram_connected=True)
             await application.bot.set_my_commands([(\"start\", \"بدء البوت\")])
         except Exception as e:
-            print(f\"⚠️ تعذر التأكد من اتصال تيليجرام: {e}\", flush=True)
+            print(f"⚠️ تعذر التأكد من اتصال تيليجرام: {e}\", flush=True)
             _set_status(telegram_connected=False)
 
     app.post_init = post_init
