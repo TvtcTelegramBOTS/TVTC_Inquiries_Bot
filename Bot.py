@@ -503,36 +503,33 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"💬 المستخدم: {txt}", flush=True)
 
     # تسجيل الخروج
-if txt == "📤 تسجيل الخروج":
-    # نحفظ الرقم مؤقتًا قبل المسح
-    last_id = context.user_data.get("student_id")
+    if txt == "📤 تسجيل الخروج":
+        # نحفظ الرقم مؤقتًا قبل المسح
+        last_id = context.user_data.get("student_id")
 
-    # نمسح كل البيانات
-    context.user_data.clear()
+        # نمسح كل البيانات
+        context.user_data.clear()
 
-    # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
-    if last_id:
-        context.user_data["last_student_id"] = last_id
+        # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
+        if last_id:
+            context.user_data["last_student_id"] = last_id
 
-    # زر إضافي لإعادة تسجيل الدخول
-    inline_keyboard = [
-        [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
-    ]
+        # زر إضافي لإعادة تسجيل الدخول
+        inline_keyboard = [
+            [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
+        ]
 
-    # رسالة واحدة أنيقة بدون أيقونة ↓
-    await update.message.reply_text(
-        "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard)
-    )
+        # رسالة واحدة أنيقة بدون أيقونة ↓ مع إخفاء الأزرار القديمة
+        await update.message.reply_text(
+            "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard)
+        )
 
-    # إخفاء لوحة الأزرار القديمة
-    await update.message.reply_text(
-        "",
-        reply_markup=ReplyKeyboardRemove()
-    )
+        await update.message.reply_text(
+            reply_markup=ReplyKeyboardRemove()
+        )
 
-    return
-
+        return
 
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
@@ -552,8 +549,8 @@ if txt == "📤 تسجيل الخروج":
             f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})\nاختر الخدمة:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
-
         return
+
 
     # إدخال رقم المتدرب
     if re.match(r"^44\d{7}$", student_id):
