@@ -520,9 +520,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         await update.message.reply_text(
-            "👋 تم تسجيل خروجك بنجاح.\n\n🔁 ادخل رقم تدريبي آخر أو اضغط القائمة لإعادة تسجيل الدخول\n\nأو يمكنك الضغط على الزر أدناه:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard)
+            "👋 تم تسجيل خروجك بنجاح.",
+           reply_markup=InlineKeyboardMarkup(inline_keyboard)
         )
+        # 🧹 إخفاء أزرار الخدمات
+        await update.message.reply_text(
+            "🔁 يمكنك إعادة تسجيل الدخول عبر الزر أدناه 👇",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
         return
 
     # إعادة تسجيل الدخول
@@ -540,9 +546,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
         await update.message.reply_text(
-            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}). اختر الخدمة:",
+            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})\nاختر الخدمة:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
+
         return
 
     # إدخال رقم المتدرب
