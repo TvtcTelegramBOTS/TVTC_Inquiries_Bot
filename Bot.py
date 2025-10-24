@@ -504,32 +504,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # تسجيل الخروج
     if txt == "📤 تسجيل الخروج":
-        # نحفظ الرقم مؤقتًا قبل المسح
-        last_id = context.user_data.get("student_id")
+    # نحفظ الرقم مؤقتًا قبل المسح
+    last_id = context.user_data.get("student_id")
 
-        # نمسح كل البيانات
-        context.user_data.clear()
+    # نمسح كل البيانات
+    context.user_data.clear()
 
-        # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
-        if last_id:
-            context.user_data["last_student_id"] = last_id
+    # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
+    if last_id:
+        context.user_data["last_student_id"] = last_id
 
-        # زر إضافي داخل الرسالة نفسها (inline button)
-        inline_keyboard = [
-            [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
-        ]
+    # زر إضافي داخل الرسالة نفسها (inline button)
+    inline_keyboard = [
+        [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
+    ]
 
-        await update.message.reply_text(
-            "👋 تم تسجيل خروجك بنجاح.",
-           reply_markup=InlineKeyboardMarkup(inline_keyboard)
-        )
-        # 🧹 إخفاء أزرار الخدمات
-        await update.message.reply_text(
-            "🔁 يمكنك إعادة تسجيل الدخول عبر الزر أدناه 👇",
-            reply_markup=ReplyKeyboardRemove()
-        )
+    await update.message.reply_text(
+        "👋 تم تسجيل خروجك بنجاح.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard)
+    )
 
-        return
+    return
 
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
