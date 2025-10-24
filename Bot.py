@@ -514,13 +514,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if last_id:
         context.user_data["last_student_id"] = last_id
 
-    # زر إضافي داخل الرسالة نفسها (inline button)
+    # نحذف لوحة الأزرار السفلية تمامًا
+    await update.message.reply_text(
+        "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    # زر إضافي أسفل الرسالة
     inline_keyboard = [
         [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
     ]
 
     await update.message.reply_text(
-        "👋 تم تسجيل خروجك بنجاح.",
+        "👇",
         reply_markup=InlineKeyboardMarkup(inline_keyboard)
     )
 
