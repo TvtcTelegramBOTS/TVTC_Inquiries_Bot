@@ -125,7 +125,7 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         import traceback; traceback.print_exc()
         return {}
     finally:
-        _set_status(indexing=False, current_file=\"\", index_progress=0.0)
+        _set_status(indexing=False, current_file=\"", index_progress=0.0)
 
 def build_majors_index(pdf_path, index_path=\"majors_index.json\"):
     try:
