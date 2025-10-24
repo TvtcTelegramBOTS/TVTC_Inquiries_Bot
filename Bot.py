@@ -512,7 +512,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
         if last_id:
-        context.user_data["last_student_id"] = last_id
+            context.user_data["last_student_id"] = last_id
 
         # 🔹 نحذف لوحة الأزرار تمامًا
         await update.message.reply_text(
@@ -535,7 +535,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         return
-
 
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
