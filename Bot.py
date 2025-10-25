@@ -507,28 +507,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # نحفظ الرقم مؤقتًا قبل المسح
         last_id = context.user_data.get("student_id")
 
-        # نمسح كل البيانات من الجلسة
+        # نمسح كل البيانات
         context.user_data.clear()
 
         # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # إزالة أزرار الخدمات (الكيبورد السفلي)
-        await update.message.reply_text(
-            "👋 تم تسجيل خروجك بنجاح.\n\n🔁 يمكنك إعادة تسجيل الدخول عبر الزر أدناه:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-
-        # زر إعادة تسجيل الدخول أسفل الرسالة
+        # زر إعادة تسجيل الدخول
         inline_keyboard = [
             [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
         ]
 
+        # رسالة واحدة تحتوي النص + الزر معًا
         await update.message.reply_text(
-            "",
+            "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard)
         )
+
+        # إخفاء لوحة الأزرار القديمة (إزالة القائمة السفلية تمامًا)
+        await update.message.reply_reply_markup(ReplyKeyboardRemove())
 
         return
 
