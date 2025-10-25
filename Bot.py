@@ -502,8 +502,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-    # تسجيل الخروج
-    if txt == "📤 تسجيل الخروج":
+       # تسجيل الخروج
+    if txt.strip() == "📤 تسجيل الخروج":
         # نحفظ الرقم مؤقتًا قبل المسح
         last_id = context.user_data.get("student_id")
 
@@ -514,13 +514,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # أولاً: نحذف لوحة الأزرار القديمة فعليًا
+        # 🔹 نحذف لوحة الأزرار القديمة (حتى تختفي أيقونة القائمة)
         await update.message.reply_text(" ", reply_markup=ReplyKeyboardRemove())
 
-        # الآن نرسل الرسالة الجديدة مع الزر
+        # 🔹 زر إعادة تسجيل الدخول
         inline_keyboard = [
             [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
         ]
+
+        # 🔹 رسالة واحدة أنيقة
         await update.message.reply_text(
             "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard)
