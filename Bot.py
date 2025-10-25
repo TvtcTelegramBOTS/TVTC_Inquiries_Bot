@@ -528,7 +528,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         last_id = context.user_data.get("last_student_id")
