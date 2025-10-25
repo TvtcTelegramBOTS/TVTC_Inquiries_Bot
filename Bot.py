@@ -514,17 +514,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # 🔹 نحذف لوحة الأزرار تمامًا
+        # 🔹 نحذف لوحة الأزرار تمامًا (حتى تختفي أيقونة القائمة)
         await update.message.reply_text(
             "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
             reply_markup=ReplyKeyboardRemove()
         )
 
-        # 🔹 نجعل تيليجرام يحدث الواجهة (يخفي أيقونة القائمة)
+        # 🔹 تحديث واجهة تيليجرام لإخفاء أيقونة القائمة فعليًا
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
         time.sleep(0.2)
 
-        # 🔹 نرسل الزر السفلي لإعادة تسجيل الدخول
+        # 🔹 زر inline داخل نفس الرسالة فقط
         inline_keyboard = [
             [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
         ]
@@ -535,6 +535,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         return
+
 
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
