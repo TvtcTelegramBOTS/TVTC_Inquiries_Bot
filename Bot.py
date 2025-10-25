@@ -502,7 +502,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-       # تسجيل الخروج
+           # تسجيل الخروج
     if txt.strip() == "📤 تسجيل الخروج":
         # نحفظ الرقم مؤقتًا قبل المسح
         last_id = context.user_data.get("student_id")
