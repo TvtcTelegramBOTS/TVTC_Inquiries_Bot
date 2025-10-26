@@ -536,8 +536,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-
-
     # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         last_id = context.user_data.get("last_student_id")
@@ -567,7 +565,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
         return
-
 
         # تسجيل جديد
     if re.match(r"^44\d{7}$", student_id):
