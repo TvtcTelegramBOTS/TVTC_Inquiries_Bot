@@ -580,19 +580,20 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["student_id"] = student_id
 
         # تحقق مما إذا كان للمتدرب مقررات متبقية
-        has_remaining = student_id in INDEXES.get("remaining", {})
+    has_remaining = student_id in INDEXES.get("remaining", {})
 
-        if has_remaining:
-            remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
-        else:
-            remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
+    # تكوين لوحة الأزرار الأساسية
+    keyboard = [
+        [KeyboardButton("📄 جدولي")],
+        [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
+        [KeyboardButton("📑 خطتي التفصيلية")],
+        [KeyboardButton("📤 تسجيل الخروج")]
+    ]
 
-        keyboard = [
-            [KeyboardButton("📄 جدولي"), remaining_button],
-            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-            [KeyboardButton("📑 خطتي التفصيلية")],
-            [KeyboardButton("📤 تسجيل الخروج")]
-        ]
+    # إذا له مقررات متبقية نضيف الزر في الصف الأول بجانب "📄 جدولي"
+    if has_remaining:
+        keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
+
 
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
