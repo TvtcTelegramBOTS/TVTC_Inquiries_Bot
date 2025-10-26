@@ -546,20 +546,21 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         context.user_data["student_id"] = last_id
+
         # تحقق مما إذا كان للمتدرب مقررات متبقية
-    has_remaining = student_id in INDEXES.get("remaining", {})
+        has_remaining = last_id in INDEXES.get("remaining", {})
 
-    if has_remaining:
-        remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
-    else:
-        remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
+        if has_remaining:
+            remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
+        else:
+            remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
 
-    keyboard = [
-        [KeyboardButton("📄 جدولي"), remaining_button],
-        [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-        [KeyboardButton("📑 خطتي التفصيلية")],
-        [KeyboardButton("📤 تسجيل الخروج")]
-    ]
+        keyboard = [
+            [KeyboardButton("📄 جدولي"), remaining_button],
+            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
+            [KeyboardButton("📑 خطتي التفصيلية")],
+            [KeyboardButton("📤 تسجيل الخروج")]
+        ]
 
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})\nاختر الخدمة:",
@@ -567,7 +568,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # إدخال رقم المتدرب
+
+        # تسجيل جديد
     if re.match(r"^44\d{7}$", student_id):
         # إذا المستخدم مسجّل دخول مسبقًا
         if "student_id" in context.user_data:
@@ -576,27 +578,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # تسجيل جديد
         context.user_data["student_id"] = student_id
+
         # تحقق مما إذا كان للمتدرب مقررات متبقية
-    has_remaining = student_id in INDEXES.get("remaining", {})
+        has_remaining = student_id in INDEXES.get("remaining", {})
 
-    if has_remaining:
-        remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
-    else:
-        remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
+        if has_remaining:
+            remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
+        else:
+            remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
 
-    keyboard = [
-        [KeyboardButton("📄 جدولي"), remaining_button],
-        [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-        [KeyboardButton("📑 خطتي التفصيلية")],
-        [KeyboardButton("📤 تسجيل الخروج")]
-    ]
+        keyboard = [
+            [KeyboardButton("📄 جدولي"), remaining_button],
+            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
+            [KeyboardButton("📑 خطتي التفصيلية")],
+            [KeyboardButton("📤 تسجيل الخروج")]
+        ]
+
         await update.message.reply_text(
-            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})\nاختر الخدمة:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        )
-        return
-        await update.message.reply_text(
-            f"✅ تم تسجيل دخولك بالرقم ({student_id}). اختر الخدمة:",
+            f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
         return
