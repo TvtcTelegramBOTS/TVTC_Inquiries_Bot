@@ -503,28 +503,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-          # تسجيل الخروج
+    # تسجيل الخروج
     if txt.strip() == "📤 تسجيل الخروج":
-        # نحفظ الرقم مؤقتًا قبل المسح
         last_id = context.user_data.get("student_id")
-
-        # نمسح كل البيانات
         context.user_data.clear()
 
-        # نعيد تخزين آخر رقم بشكل دائم حتى بعد المسح
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # 🧹 الخطوة 1: أرسل رسالة بسيطة فقط لإزالة لوحة الخدمات
+        # إزالة لوحة الخدمات
         await update.message.reply_text(
             "جارٍ تسجيل الخروج...",
             reply_markup=ReplyKeyboardRemove()
         )
-
-        # ⏳ انتظر لحظة قصيرة جداً لإعطاء تيليجرام فرصة لتحديث الواجهة
         await asyncio.sleep(0.2)
 
-        # 🟢 الخطوة 2: أرسل الرسالة الرئيسية مع زر إعادة الدخول
+        # زر إعادة تسجيل الدخول
         inline_keyboard = [
             [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
         ]
@@ -533,7 +527,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard)
         )
-
         return
 
     # إعادة تسجيل الدخول
@@ -544,53 +537,41 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         context.user_data["student_id"] = last_id
-
-        # تحقق مما إذا كان للمتدرب مقررات متبقية
         has_remaining = last_id in INDEXES.get("remaining", {})
 
-        if has_remaining:
-            remaining_button = KeyboardButton("📚 مقرراتي المتبقية")
-        else:
-            remaining_button = KeyboardButton("🔒 مقرراتي المتبقية")
-
+        # إنشاء لوحة الأزرار
         keyboard = [
-            [KeyboardButton("📄 جدولي"), remaining_button],
+            [KeyboardButton("📄 جدولي")],
             [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
             [KeyboardButton("📑 خطتي التفصيلية")],
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
+        if has_remaining:
+            keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
         await update.message.reply_text(
-            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})\nاختر الخدمة:",
+            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}).\nاختر الخدمة:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
         return
 
-        # تسجيل جديد
+    # تسجيل جديد
     if re.match(r"^44\d{7}$", student_id):
-        # إذا المستخدم مسجّل دخول مسبقًا
         if "student_id" in context.user_data:
             await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
             return
 
-        # تسجيل جديد
         context.user_data["student_id"] = student_id
+        has_remaining = student_id in INDEXES.get("remaining", {})
 
-        # تحقق مما إذا كان للمتدرب مقررات متبقية
-    has_remaining = student_id in INDEXES.get("remaining", {})
-
-    # تكوين لوحة الأزرار الأساسية
-    keyboard = [
-        [KeyboardButton("📄 جدولي")],
-        [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-        [KeyboardButton("📑 خطتي التفصيلية")],
-        [KeyboardButton("📤 تسجيل الخروج")]
-    ]
-
-    # إذا له مقررات متبقية نضيف الزر في الصف الأول بجانب "📄 جدولي"
-    if has_remaining:
-        keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
-
+        keyboard = [
+            [KeyboardButton("📄 جدولي")],
+            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
+            [KeyboardButton("📑 خطتي التفصيلية")],
+            [KeyboardButton("📤 تسجيل الخروج")]
+        ]
+        if has_remaining:
+            keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
@@ -598,7 +579,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # خرائط الأزرار إلى الخدمات
+    # الخدمات
     mapping = {
         "📄 جدولي": "schedule",
         "📚 مقرراتي المتبقية": "remaining",
@@ -606,6 +587,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎓 معدلي": "gpa",
         "📑 خطتي التفصيلية": "detailed_plan",
     }
+
     service = mapping.get(txt)
     if service:
         sid = context.user_data.get("student_id")
@@ -615,8 +597,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_pdf(update, context, service)
         return
 
-    await update.message.reply_text("⚠️ يرجى إدخال رقم تدريبي صحيح يبدأ بـ 44 أو اختر خدمة من الأزرار.")
-
+    # أي رسالة أخرى غير مفهومة
+    await update.message.reply_text(
+        "⚠️ يرجى إدخال رقم تدريبي صحيح يبدأ بـ 44 أو اختر خدمة من الأزرار."
+    )
 # =========================
 # التشغيل الرئيسي
 # =========================
