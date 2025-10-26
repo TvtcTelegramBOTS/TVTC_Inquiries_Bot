@@ -529,7 +529,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # إعادة تسجيل الدخول
+        # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         last_id = context.user_data.get("last_student_id")
         if not last_id:
@@ -537,18 +537,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         context.user_data["student_id"] = last_id
+
+        # ✅ نتحقق مجددًا من وجود المقررات المتبقية عند إعادة تسجيل الدخول
         has_remaining = last_id in INDEXES.get("remaining", {})
 
-        # إنشاء لوحة الأزرار
+        # ✅ نبني لوحة الأزرار ديناميكيًا (مثل أول تسجيل دخول)
         keyboard = [
             [KeyboardButton("📄 جدولي")],
             [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
             [KeyboardButton("📑 خطتي التفصيلية")],
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
+
+        # ✅ نضيف الزر فقط إذا المتدرب له مقررات
         if has_remaining:
             keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
+        # ✅ نرسل الرسالة بعد التحقق
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}).\nاختر الخدمة:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
