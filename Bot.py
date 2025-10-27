@@ -529,7 +529,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-                # إعادة تسجيل الدخول
+                    # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         last_id = context.user_data.get("last_student_id")
         if not last_id:
@@ -538,13 +538,18 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["student_id"] = last_id
 
-        # ✅ نتحقق من الفهرس بعد إعادة التشغيل (ونتأكد أنه موجود فعلاً)
-        remaining_index = INDEXES.get("remaining") or {}
+        # ✅ نحاول تحميل فهرس المقررات من الملف مباشرة لتجنب مشاكل التزامن
+        has_remaining = False
+        try:
+            if os.path.exists("remaining_index.json"):
+                with open("remaining_index.json", "r", encoding="utf-8") as f:
+                    remaining_data = json.load(f)
+                    if isinstance(remaining_data, dict):
+                        has_remaining = last_id in remaining_data
+        except Exception as e:
+            print(f"⚠️ فشل قراءة فهرس remaining_index.json: {e}", flush=True)
 
-        # ✅ إذا المتدرب له مقررات متبقية نضيف الزر، وإلا نحذفه
-        has_remaining = last_id in remaining_index
-
-        # ✅ نجهز الأزرار بناءً على الحالة
+        # ✅ تجهيز لوحة الأزرار
         keyboard = [
             [KeyboardButton("📄 جدولي")],
             [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
@@ -552,6 +557,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
 
+        # ✅ إذا فعلاً له مقررات متبقية نضيف الزر
         if has_remaining:
             keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
