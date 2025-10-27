@@ -529,8 +529,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-                    # إعادة تسجيل الدخول
+                        # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
+        import json, os
+
         last_id = context.user_data.get("last_student_id")
         if not last_id:
             await update.message.reply_text("⚠️ لا يوجد رقم تدريبي سابق لإعادة تسجيل الدخول.")
@@ -538,18 +540,26 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["student_id"] = last_id
 
-        # ✅ نحاول تحميل فهرس المقررات من الملف مباشرة لتجنب مشاكل التزامن
+        # ✅ تحقق من جاهزية فهرس المقررات أو أعد تحميله إذا كان ناقصًا
         has_remaining = False
+        remaining_path = "remaining_index.json"
+
         try:
-            if os.path.exists("remaining_index.json"):
-                with open("remaining_index.json", "r", encoding="utf-8") as f:
+            if not os.path.exists(remaining_path) or os.path.getsize(remaining_path) < 10:
+                print("⚠️ الملف remaining_index.json غير جاهز أو فارغ — إعادة بناء الفهرس الآن...", flush=True)
+                INDEXES["remaining"] = build_remaining_index(FILES["remaining"])
+
+            # إعادة قراءة الملف بعد التأكد من وجوده
+            if os.path.exists(remaining_path):
+                with open(remaining_path, "r", encoding="utf-8") as f:
                     remaining_data = json.load(f)
                     if isinstance(remaining_data, dict):
                         has_remaining = last_id in remaining_data
-        except Exception as e:
-            print(f"⚠️ فشل قراءة فهرس remaining_index.json: {e}", flush=True)
 
-        # ✅ تجهيز لوحة الأزرار
+        except Exception as e:
+            print(f"⚠️ فشل في تحميل فهرس remaining_index.json: {e}", flush=True)
+
+        # ✅ إنشاء الأزرار
         keyboard = [
             [KeyboardButton("📄 جدولي")],
             [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
@@ -557,7 +567,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
 
-        # ✅ إذا فعلاً له مقررات متبقية نضيف الزر
         if has_remaining:
             keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
