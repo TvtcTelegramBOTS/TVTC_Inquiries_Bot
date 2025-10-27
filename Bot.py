@@ -529,7 +529,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-                        # إعادة تسجيل الدخول
+                            # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         import json, os
 
