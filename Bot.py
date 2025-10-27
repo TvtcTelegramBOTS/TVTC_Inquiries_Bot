@@ -529,7 +529,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-            # إعادة تسجيل الدخول
+                # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
         last_id = context.user_data.get("last_student_id")
         if not last_id:
@@ -538,10 +538,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["student_id"] = last_id
 
-        # ✅ تحقق من وجود المقررات المتبقية في الفهرس الحالي
-        has_remaining = last_id in INDEXES.get("remaining", {})
+        # ✅ نتحقق من الفهرس بعد إعادة التشغيل (ونتأكد أنه موجود فعلاً)
+        remaining_index = INDEXES.get("remaining") or {}
 
-        # ✅ بناء لوحة الأزرار
+        # ✅ إذا المتدرب له مقررات متبقية نضيف الزر، وإلا نحذفه
+        has_remaining = last_id in remaining_index
+
+        # ✅ نجهز الأزرار بناءً على الحالة
         keyboard = [
             [KeyboardButton("📄 جدولي")],
             [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
@@ -549,7 +552,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [KeyboardButton("📤 تسجيل الخروج")]
         ]
 
-        # ✅ نضيف الزر إذا له مقررات متبقية
         if has_remaining:
             keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
