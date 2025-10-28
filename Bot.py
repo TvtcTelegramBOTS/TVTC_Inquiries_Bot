@@ -488,7 +488,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         except Exception:
             pass
 
-# =========================
+=================
 # معالجات الرسائل
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -496,6 +496,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 مرحباً!\nأرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
         reply_markup=ReplyKeyboardRemove()
     )
+
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
@@ -529,10 +530,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-                            # إعادة تسجيل الدخول
+    # إعادة تسجيل الدخول
     if txt == "🔁 إعادة تسجيل الدخول":
-        import json, os
-
         last_id = context.user_data.get("last_student_id")
         if not last_id:
             await update.message.reply_text("⚠️ لا يوجد رقم تدريبي سابق لإعادة تسجيل الدخول.")
@@ -540,39 +539,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         context.user_data["student_id"] = last_id
 
-        # ✅ تحقق من جاهزية فهرس المقررات أو أعد تحميله إذا كان ناقصًا
-        has_remaining = False
-        remaining_path = "remaining_index.json"
-
-        try:
-            if not os.path.exists(remaining_path) or os.path.getsize(remaining_path) < 10:
-                print("⚠️ الملف remaining_index.json غير جاهز أو فارغ — إعادة بناء الفهرس الآن...", flush=True)
-                INDEXES["remaining"] = build_remaining_index(FILES["remaining"])
-
-            # إعادة قراءة الملف بعد التأكد من وجوده
-            if os.path.exists(remaining_path):
-                with open(remaining_path, "r", encoding="utf-8") as f:
-                    remaining_data = json.load(f)
-                    if isinstance(remaining_data, dict):
-                        has_remaining = last_id in remaining_data
-
-        except Exception as e:
-            print(f"⚠️ فشل في تحميل فهرس remaining_index.json: {e}", flush=True)
-
-        # ✅ إنشاء الأزرار
-        keyboard = [
-            [KeyboardButton("📄 جدولي")],
-            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-            [KeyboardButton("📑 خطتي التفصيلية")],
-            [KeyboardButton("📤 تسجيل الخروج")]
-        ]
-
-        if has_remaining:
-            keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
+        # ✅ استخدم دالة موحدة لبناء لوحة الأزرار حسب حالة المتدرب
+        keyboard = build_main_keyboard(last_id)
 
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}).\nاختر الخدمة:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            reply_markup=keyboard
         )
         return
 
@@ -583,20 +555,31 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         context.user_data["student_id"] = student_id
-        has_remaining = student_id in INDEXES.get("remaining", {})
 
-        keyboard = [
-            [KeyboardButton("📄 جدولي")],
-            [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-            [KeyboardButton("📑 خطتي التفصيلية")],
-            [KeyboardButton("📤 تسجيل الخروج")]
-        ]
-        if has_remaining:
-            keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
+        # بناء لوحة الأزرار بناءً على حالة المتدرب الجديدة
+        keyboard = build_main_keyboard(student_id)
 
         await update.message.reply_text(
             f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            reply_markup=keyboard
+        )
+        return
+
+        # تسجيل جديد
+    if re.match(r"^44\d{7}$", student_id):
+        if "student_id" in context.user_data:
+            await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
+            return
+
+        # تسجيل جديد للمتدرب
+        context.user_data["student_id"] = student_id
+
+        # إنشاء لوحة الخدمات بناءً على وجود مقررات متبقية
+        keyboard = build_main_keyboard(student_id)
+
+        await update.message.reply_text(
+            f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
+            reply_markup=keyboard
         )
         return
 
