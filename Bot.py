@@ -489,6 +489,26 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             pass
 
 # =========================
+# دالة مساعدة لبناء لوحة الأزرار
+# =========================
+def build_main_keyboard(student_id: str):
+    """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات متبقية أم لا)."""
+    has_remaining = student_id in INDEXES.get("remaining", {})
+
+    keyboard = [
+        [KeyboardButton("📄 جدولي")],
+        [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
+        [KeyboardButton("📑 خطتي التفصيلية")],
+        [KeyboardButton("📤 تسجيل الخروج")]
+    ]
+
+    # فقط إذا له مقررات متبقية نضيف الزر بجانب "📄 جدولي"
+    if has_remaining:
+        keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
+
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# =========================
 # معالجات الرسائل
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
