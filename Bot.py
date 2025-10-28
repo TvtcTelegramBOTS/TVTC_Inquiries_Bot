@@ -488,7 +488,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         except Exception:
             pass
 
-=================
+# =========================
 # معالجات الرسائل
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -554,6 +554,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
             return
 
+        # تسجيل جديد للمتدرب
         context.user_data["student_id"] = student_id
 
         # بناء لوحة الأزرار بناءً على حالة المتدرب الجديدة
@@ -563,12 +564,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
             reply_markup=keyboard
         )
-        return
-
-        # تسجيل جديد
-if re.match(r"^44\d{7}$", student_id):
-    if "student_id" in context.user_data:
-        await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
         return
 
     # تسجيل جديد للمتدرب
