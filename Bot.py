@@ -568,7 +568,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # تسجيل جديد
+        # تسجيل جديد
     if re.match(r"^44\d{7}$", student_id):
         if "student_id" in context.user_data:
             await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
@@ -585,18 +585,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard
         )
         return
-
-    # تسجيل جديد للمتدرب
-    context.user_data["student_id"] = student_id
-
-    # إنشاء لوحة الخدمات بناءً على وجود مقررات متبقية
-    keyboard = build_main_keyboard(student_id)
-
-    await update.message.reply_text(
-        f"✅ تم تسجيل دخولك بالرقم ({student_id}).\nاختر الخدمة:",
-        reply_markup=keyboard
-    )
-    return
 
     # الخدمات
     mapping = {
@@ -620,6 +608,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "⚠️ يرجى إدخال رقم تدريبي صحيح يبدأ بـ 44 أو اختر خدمة من الأزرار."
     )
+
 # =========================
 # التشغيل الرئيسي
 # =========================
@@ -654,18 +643,13 @@ def main():
                 f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})."
             )
 
-            # إرسال رسالة جديدة مع قائمة الخدمات (ReplyKeyboardMarkup)
-            keyboard = [
-                [KeyboardButton("📄 جدولي"), KeyboardButton("📚 مقرراتي المتبقية")],
-                [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
-                [KeyboardButton("📑 خطتي التفصيلية")],
-                [KeyboardButton("📤 تسجيل الخروج")]
-            ]
+            # إرسال رسالة جديدة مع قائمة الخدمات الديناميكية
+            keyboard = build_main_keyboard(last_id)
 
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="اختر الخدمة:",
-                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                reply_markup=keyboard
             )
 
     # 🟢 تفعيل معالج الأزرار بعد تعريف الدالة
@@ -705,7 +689,6 @@ def main():
         )
         print("👋 تم إيقاف البوت، يتم إنهاء جميع العمليات...", flush=True)
         try:
-            # إيقاف خادم الحالة
             import os as _os, signal as _signal
             _os.kill(_os.getpid(), _signal.SIGTERM)
         except Exception as e:
