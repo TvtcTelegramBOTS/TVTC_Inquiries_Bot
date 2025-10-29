@@ -297,7 +297,7 @@ INDEXES = {
     "advisor": None,
     "remaining": {},
     "gpa": {},
-    "majors": {}
+    "majors": {},
     "ids": {},
 }
 
@@ -315,12 +315,12 @@ def initialize_indexes():
         # gpa (قد لا يحتاج فهرسة؛ نتركه فارغ)
         INDEXES["gpa"] = {}
 
-        # majors (فهرس نصي سريع للبحث)
-        print("\n📂 فهرسة MAJORS ...", flush=True)
-        INDEXES["majors"] = build_majors_index(FILES["majors"])
-
         print("\n📂 فهرسة IDs ...", flush=True)
         INDEXES["ids"] = build_ids_index(FILES["ids"])
+
+# majors (فهرس نصي سريع للبحث)
+        print("\n📂 فهرسة MAJORS ...", flush=True)
+        INDEXES["majors"] = build_majors_index(FILES["majors"])
 
         # advisor (CSV لا يحتاج فهرسة)
         INDEXES["advisor"] = None
@@ -662,8 +662,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-            # ========= مرحلة التحقق على خطوتين =========
+    # ========= مرحلة التحقق على خطوتين =========
     # 1) المستخدم أدخل رقم متدرب صالح 44xxxxxxx
+
     if re.match(r"^44\d{7}$", student_id):
         # إن كان مسجّل مسبقاً، نطلب منه الخروج أولاً
         if "student_id" in context.user_data:
