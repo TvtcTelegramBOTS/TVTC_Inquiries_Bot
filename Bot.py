@@ -84,6 +84,47 @@ def convert_arabic_to_english(arabic_number: str) -> str:
     }
     return ''.join(arabic_digits.get(ch, ch) for ch in arabic_number)
 
+# =============== أدوات مساعدة للهوية والاسم ===============
+AR_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
+
+def normalize_digits(s: str) -> str:
+    """تحويل الأرقام العربية-الهندية إلى إنجليزية + إزالة محارف خفية."""
+    return (s or "").translate(AR_DIGITS).replace('\u200f', '').replace('\u200e', '').strip()
+
+def is_valid_nid(nid: str) -> bool:
+    """هوية وطنية سعودية: تبدأ بـ 1 وطولها 10 أرقام."""
+    nid = normalize_digits(nid)
+    return bool(re.fullmatch(r'1\d{9}', nid))
+
+def looks_like_ar_name(line: str) -> bool:
+    if not re.search(r'[اأإآء-ي]', line):
+        return False
+    s = re.sub(r'[^اأإآء-ي\s]', '', line).strip()
+    if not s:
+        return False
+    words = [w for w in s.split() if len(w) >= 2]
+    return 2 <= len(words) <= 5
+
+def clean_ar_name(line: str) -> str:
+    s = re.sub(r'[^\w\s\u0600-\u06FF]', ' ', line)  # إبقاء العربية والمسافات
+    s = re.sub(r'\s+', ' ', s).strip()
+    # إزالة ألفاظ وصفية شائعة لو ظهرت ملتصقة بالاسم
+    s = re.sub(r'\b(الطالب|المتدرب|اسم|Name)\b', '', s).strip()
+    return s
+
+def extract_first_name(full_name: str) -> str:
+    """
+    أول اسم منطقي مع مراعاة المركّب (عبد الرحمن، عبد الله).
+    لو ما قدر، يرجع أول كلمة سليمة.
+    """
+    full_name = clean_ar_name(full_name)
+    parts = full_name.split()
+    if not parts:
+        return "عزيزنا"
+    if len(parts) >= 2 and parts[0] in ("عبد", "أبو", "أم", "ابن", "بن"):
+        return f"{parts[0]} {parts[1]}"
+    return parts[0]
+
 # =========================
 # فهرسة PDF (مع تقدم لحظي)
 # =========================
@@ -172,10 +213,15 @@ def build_ids_index(pdf_path, index_path="ids_index.json"):
     """
     يبني فهرساً بالشكل:
     {
-        "44xxxxxxx": {"nid": "XXXXXXXXXX", "name": "الاسم الكامل"},
+        "44xxxxxxx": {"nid": "1xxxxxxxxx", "name": "الاسم الكامل"},
         ...
     }
-    المبدأ: يلتقط رقم متدرب 44xxxxxxx + رقم هوية 10 أرقام + أقرب اسم عربي حولهما.
+    الاستراتيجية:
+    - نقرأ الصفحة كسطور.
+    - لكل سطر فيه رقم متدرب 44xxxxxxx، نبحث في نفس السطر ± سطرين عن:
+      * هوية (1 + 9 أرقام) بعد التطبيع
+      * اسم عربي يبدو منطقياً
+    - نأخذ أقرب تطابق ومقبول.
     """
     try:
         meta_path = index_path + ".meta"
@@ -195,54 +241,53 @@ def build_ids_index(pdf_path, index_path="ids_index.json"):
         reader = PdfReader(pdf_path)
         index = {}
 
-        # أنماط
-        sid_pat = re.compile(r"\b(44\d{7})\b")
-        nid_pat = re.compile(r"\b(\d{10})\b")
-        # كتلة حروف عربية (اسم غالبًا): نسحب سلاسل عربية طويلة نسبيًا
-        name_pat = re.compile(r"[اأإآء-ي][اأإآء-ي\sًٌٍَُِّْـ]{2,}")
+        sid_re = re.compile(r'\b(44\d{7})\b')
+        # لاحظ: نقبل أحياناً أرقام عربية-هندية ثم نطبّعها
+        nid_re = re.compile(r'\b([0-9٠-٩]{10})\b')
 
         for page in reader.pages:
             text = page.extract_text() or ""
-            # نبسّط المسافات
-            text = " ".join(text.split())
+            # نقسم لأسطر للمضاهاة القريبة
+            lines = [re.sub(r'\s+', ' ', ln).strip() for ln in text.splitlines() if ln.strip()]
 
-            # نجمع كل التطابقات
-            sids = sid_pat.findall(text)
-            nids = nid_pat.findall(text)
-            names = name_pat.findall(text)
+            for i, line in enumerate(lines):
+                # طابق أرقام المتدرب في هذا السطر
+                for sid in sid_re.findall(line):
+                    # نبحث في نافذة الأسطر القريبة: السطر نفسه ± 2
+                    window_idx = range(max(0, i - 2), min(len(lines), i + 3))
+                    chosen_nid = None
+                    chosen_name = None
+                    best_name = ""
 
-            # خرائط تقريبية لمضاهاة الأقرب
-            # الفكرة: إن وُجد SID وNID في نفس الصفحة نربطهم مع أقرب اسم
-            for sid in sids:
-                # ابحث عن NID قريب من SID في النص
-                # نستخدم فاصل نافذة بسيطة (500 حرف مثلاً)
-                pos_sid = text.find(sid)
-                chosen_nid = None
-                min_dist = 10**9
-                for nid in nids:
-                    pos_nid = text.find(nid)
-                    d = abs(pos_nid - pos_sid)
-                    if 0 <= d < min_dist and d < 500:
-                        min_dist = d
-                        chosen_nid = nid
+                    for j in window_idx:
+                        ln = lines[j]
 
-                # اسم تقريبي قريب
-                chosen_name = None
-                min_dist_name = 10**9
-                for nm in names:
-                    pos_nm = text.find(nm)
-                    d = abs(pos_nm - pos_sid)
-                    # نتجنّب أسماء شديدة القِصر
-                    if 0 <= d < min_dist_name and d < 600 and len(nm.strip()) >= 3:
-                        min_dist_name = d
-                        chosen_name = nm.strip()
+                        # التقط أي 10 أرقام وطبّعها ثم تحقق بصيغة الهوية الصحيحة
+                        for raw in nid_re.findall(ln):
+                            nid = normalize_digits(raw)
+                            if is_valid_nid(nid):
+                                chosen_nid = nid
+                                break
+                        if chosen_nid and best_name:
+                            break
 
-                if sid not in index:
-                    index[sid] = {}
-                if chosen_nid:
-                    index[sid]["nid"] = chosen_nid
-                if chosen_name:
-                    index[sid]["name"] = chosen_name
+                        # التقط اسم عربي معقول
+                        if looks_like_ar_name(ln):
+                            nm = clean_ar_name(ln)
+                            # اختر الاسم "الأفضل" (الأطول قليلاً حتى 40 حرف مثلاً)
+                            if 3 <= len(nm) <= 40 and len(nm) > len(best_name):
+                                best_name = nm
+
+                    if best_name:
+                        chosen_name = best_name
+
+                    # خزّن النتائج
+                    if sid not in index:
+                        index[sid] = {}
+                    if chosen_nid:
+                        index[sid]["nid"] = chosen_nid
+                    if chosen_name:
+                        index[sid]["name"] = chosen_name
 
         # حفظ
         with open(index_path, "w", encoding="utf-8") as f:
@@ -256,38 +301,6 @@ def build_ids_index(pdf_path, index_path="ids_index.json"):
         print("❌ خطأ أثناء فهرسة IDs:", e, flush=True)
         import traceback; traceback.print_exc()
         return {}
-
-def build_index(pdf_path):
-    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
-    try:
-        if not os.path.exists(pdf_path):
-            print(f"⚠️ الملف {pdf_path} غير موجود.", flush=True)
-            return {}
-        print(f"⏳ فهرسة (index) الملف: {pdf_path}", flush=True)
-        reader = PdfReader(pdf_path)
-        total_pages = len(reader.pages)
-        index = {}
-        start_time = time.time()
-
-        for i, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
-            for m in re.findall(r"\b44\d{7}\b", text):
-                if m not in index:
-                    index[m] = i-1
-            percent = (i / total_pages) * 100
-            _set_status(index_progress=percent)
-            print(f"فهرسة index: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
-            time.sleep(0.01)
-
-        elapsed = time.time() - start_time
-        print(f"✅ تم فهرسة {pdf_path} ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
-        return index
-    except Exception as e:
-        print("❌ خطأ أثناء فهرسة:", e, flush=True)
-        import traceback; traceback.print_exc()
-        return {}
-    finally:
-        _set_status(indexing=False, current_file="", index_progress=0.0)
 
 # =========================
 # تهيئة الفهارس (تشغل بالخلفية)
@@ -318,7 +331,7 @@ def initialize_indexes():
         print("\n📂 فهرسة IDs ...", flush=True)
         INDEXES["ids"] = build_ids_index(FILES["ids"])
 
-# majors (فهرس نصي سريع للبحث)
+        # majors (فهرس نصي سريع للبحث)
         print("\n📂 فهرسة MAJORS ...", flush=True)
         INDEXES["majors"] = build_majors_index(FILES["majors"])
 
@@ -662,50 +675,48 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ========= مرحلة التحقق على خطوتين =========
-    # 1) المستخدم أدخل رقم متدرب صالح 44xxxxxxx
+        # ========= مرحلة التحقق على خطوتين =========
 
+    # 1️⃣ المستخدم أدخل رقم متدرب صالح 44xxxxxxx
     if re.match(r"^44\d{7}$", student_id):
-        # إن كان مسجّل مسبقاً، نطلب منه الخروج أولاً
         if "student_id" in context.user_data:
             await update.message.reply_text("⚠️ يرجى تسجيل الخروج أولًا قبل إدخال رقم جديد.")
             return
 
-        # خزّن الرقم مؤقتًا واطلب الهوية
         context.user_data["pending_student_id"] = student_id
         await update.message.reply_text("🪪 أدخل رقم الهوية الوطنية (10 أرقام):")
         return
 
-    # 2) المستخدم في وضع انتظار الهوية وأرسل 10 أرقام
-    if "pending_student_id" in context.user_data and re.match(r"^\d{10}$", txt):
-        entered_nid = txt
-        pending_id = context.user_data.get("pending_student_id")
+    # 2️⃣ المستخدم في وضع انتظار الهوية وأرسل 10 أرقام
+    if "pending_student_id" in context.user_data and re.match(r"^[0-9٠-٩]{10}$", txt):
+        entered_nid = normalize_digits(txt)
 
-        # نقرأ من فهرس IDs
+        if not is_valid_nid(entered_nid):
+            await update.message.reply_text("⚠️ أدخل رقم الهوية الوطنية الصحيح (10 أرقام يبدأ بـ 1).")
+            return
+
+        pending_id = context.user_data.get("pending_student_id")
         ids_map = INDEXES.get("ids") or {}
         rec = ids_map.get(pending_id)
 
         if not rec or "nid" not in rec:
             await update.message.reply_text("⚠️ لا توجد بيانات هوية مرتبطة بهذا الرقم التدريبي. تواصل مع الدعم.")
-            # أبقيه في وضع الانتظار أو امسح الوضع حسب رغبتك:
-            # context.user_data.pop("pending_student_id", None)
             return
 
-        if str(rec["nid"]) != entered_nid:
+        if normalize_digits(str(rec["nid"])) != entered_nid:
             await update.message.reply_text("❌ رقم الهوية غير مطابق لرقم المتدرب. حاول مرة أخرى.")
             return
 
-        # ✅ نجاح التحقق — نسجّل دخوله، ونرحّب بالاسم الأول
         context.user_data["student_id"] = pending_id
         context.user_data.pop("pending_student_id", None)
 
         full_name = rec.get("name", "").strip()
-        first_name = full_name.split()[0] if full_name else "عزيزنا"
+        first_name = extract_first_name(full_name)
 
         keyboard = build_main_keyboard(pending_id)
 
         await update.message.reply_text(
-            f"✅ مرحبًا بك {first_name}!\nاختر الخدمة المطلوبة:",
+            f"🎉 أهلاً وسهلاً {first_name}!\nالآن يمكنك الاستفادة من خدماتك:",
             reply_markup=keyboard
         )
         return
