@@ -602,7 +602,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"💬 المستخدم: {txt}", flush=True)
 
     # تسجيل الخروج
-        if txt.strip() == "📤 تسجيل الخروج":
+    if txt.strip() == "📤 تسجيل الخروج":
         last_id = context.user_data.get("student_id")
         context.user_data.clear()
 
