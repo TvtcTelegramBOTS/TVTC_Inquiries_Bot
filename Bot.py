@@ -602,27 +602,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"💬 المستخدم: {txt}", flush=True)
 
     # تسجيل الخروج
-    if txt.strip() == "📤 تسجيل الخروج":
+        if txt.strip() == "📤 تسجيل الخروج":
         last_id = context.user_data.get("student_id")
         context.user_data.clear()
 
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # إزالة لوحة الخدمات
+        # ✅ أولاً نحذف لوحة الأزرار تمامًا
         await update.message.reply_text(
-            "جارٍ تسجيل الخروج...",
+            "👋 تم تسجيل خروجك بنجاح. سيتم إخفاء الأزرار...",
             reply_markup=ReplyKeyboardRemove()
         )
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
 
-        # زر إعادة تسجيل الدخول
+        # ✅ بعدها نرسل رسالة تأكيد جديدة فقط بالزر المضمن
         inline_keyboard = [
-            [InlineKeyboardButton("اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
+            [InlineKeyboardButton("🔁 اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
         ]
 
         await update.message.reply_text(
-            "👋 تم تسجيل خروجك بنجاح.\n\n🔁 أدخل رقم تدريبي آخر أو اضغط الزر أدناه لإعادة تسجيل الدخول:",
+            "✅ تم تسجيل خروجك بنجاح.\n\n🔹 يمكنك الآن إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard)
         )
         return
