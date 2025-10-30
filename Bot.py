@@ -44,7 +44,7 @@ FILES = {
     "remaining": "Remaining.pdf",
     "gpa": "GPA.pdf",
     "majors": "TNumbers with majors.pdf",
-    "ids": "IDs.pdf",
+    "ids": "IDs.csv",
 }
 
 # ✅ استخدم متغير البيئة TELEGRAM_TOKEN
@@ -217,75 +217,32 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
-
-def build_ids_index(pdf_path, index_path="ids_index.json"):
-    try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس IDs جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-
-        if not os.path.exists(pdf_path):
-            print(f"⚠️ ملف IDs غير موجود: {pdf_path}", flush=True)
-            return {}
-
-        print(f"🔍 بناء فهرس IDs من {pdf_path} ...", flush=True)
-        reader = PdfReader(pdf_path)
-        index = {}
-
-        sid_re = re.compile(r'\b(44\d{7})\b')
-        nid_re = re.compile(r'\b([0-9٠-٩]{10})\b')
-
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            if not re.search(r'44\d{7}', text):
-                continue
-
-            lines = [re.sub(r'\s+', ' ', ln).strip() for ln in text.splitlines() if ln.strip()]
-            for i, line in enumerate(lines):
-                for sid in sid_re.findall(line):
-                    window_idx = range(max(0, i - 4), min(len(lines), i + 5))
-                    chosen_nid = None
-                    best_name = ""
-
-                    for j in window_idx:
-                        ln = lines[j]
-                        for raw in nid_re.findall(ln.replace(" ", "")):
-                            nid = normalize_digits(raw)
-                            if is_valid_nid(nid):
-                                chosen_nid = nid
-                                break
-                        if looks_like_ar_name(ln):
-                            nm = clean_ar_name(ln)
-                            if 3 <= len(nm) <= 40 and len(nm) > len(best_name):
-                                best_name = nm
-                        if chosen_nid and best_name:
-                            break
-
-                    if sid not in index:
-                        index[sid] = {}
-                    if chosen_nid:
-                        index[sid]["nid"] = chosen_nid
-                    if best_name:
-                        index[sid]["name"] = best_name
-
-        with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
-
-        print(f"✅ تم بناء فهرس IDs ({len(index)} متدرب).", flush=True)
+def load_ids_from_csv(csv_path: str):
+    """
+    🔹 تحميل بيانات المتدربين من ملف CSV يحتوي على الأعمدة:
+    الفصل التدريبي,"الوحدة التدريبية","المرحلة","القسم","البرنامج",
+    "رقم المتدرب","اسم المتدرب","المعدل التراكمي","السجل المدني","الجنس","الجنسية","رقم الجوال"
+    🔸 النتيجة: {"رقم المتدرب": {"nid": "السجل المدني", "name": "اسم المتدرب"}}
+    """
+    index = {}
+    if not os.path.exists(csv_path):
+        print(f"⚠️ ملف CSV غير موجود: {csv_path}", flush=True)
         return index
+
+    try:
+        df = pd.read_csv(csv_path, encoding="utf-8-sig", dtype=str, quotechar='"')
+        for _, row in df.iterrows():
+            sid = str(row.get("رقم المتدرب", "")).strip()
+            nid = str(row.get("السجل المدني", "")).strip()
+            name = str(row.get("اسم المتدرب", "")).strip()
+            if re.fullmatch(r"44\d{7}", sid) and re.fullmatch(r"1\d{9}", nid):
+                index[sid] = {"nid": nid, "name": name}
+        print(f"✅ تم تحميل بيانات {len(index)} متدرب من CSV بنجاح.", flush=True)
     except Exception as e:
-        print("❌ خطأ أثناء فهرسة IDs:", e, flush=True)
+        print(f"❌ خطأ أثناء قراءة CSV: {e}", flush=True)
         import traceback; traceback.print_exc()
-        return {}
-    finally:
-        _set_status(indexing=False, current_file="", index_progress=0.0)
+
+    return index
 
 
 def build_majors_index(pdf_path, index_path="majors_index.json"):
@@ -342,7 +299,7 @@ def initialize_indexes():
         INDEXES["gpa"] = {}
 
         print("\n📂 فهرسة IDs ...", flush=True)
-        INDEXES["ids"] = build_ids_index(FILES["ids"])
+        INDEXES["ids"] = load_ids_from_csv("IDs.csv")
         time.sleep(0.3)
 
         print("\n📂 فهرسة MAJORS ...", flush=True)
@@ -352,35 +309,6 @@ def initialize_indexes():
         INDEXES["advisor"] = None
         print("\n----------------------------", flush=True)
         print("✅ جميع الفهارس جاهزة بنجاح.", flush=True)
-    except Exception as e:
-        print("❌ خطأ أثناء التهيئة:", e, flush=True)
-        import traceback; traceback.print_exc()
-
-def initialize_indexes():
-    print("🚀 بدء تشغيل النظام وفهرسة الملفات بالخلفية...", flush=True)
-    try:
-        # schedule
-        print("\n📂 فهرسة SCHEDULE ...", flush=True)
-        INDEXES["schedule"] = build_index(FILES["schedule"])
-
-        # remaining
-        print("\n📂 فهرسة REMAINING ...", flush=True)
-        INDEXES["remaining"] = build_remaining_index(FILES["remaining"])
-
-        # gpa (قد لا يحتاج فهرسة؛ نتركه فارغ)
-        INDEXES["gpa"] = {}
-
-        print("\n📂 فهرسة IDs ...", flush=True)
-        INDEXES["ids"] = build_ids_index(FILES["ids"])
-
-        # majors (فهرس نصي سريع للبحث)
-        print("\n📂 فهرسة MAJORS ...", flush=True)
-        INDEXES["majors"] = build_majors_index(FILES["majors"])
-
-        # advisor (CSV لا يحتاج فهرسة)
-        INDEXES["advisor"] = None
-
-        print("\n✅ تم تجهيز جميع الفهارس بنجاح.", flush=True)
     except Exception as e:
         print("❌ خطأ أثناء التهيئة:", e, flush=True)
         import traceback; traceback.print_exc()
@@ -761,7 +689,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎉 أهلاً وسهلاً {first_name}!\nالآن يمكنك الاستفادة من خدماتك:",
             reply_markup=keyboard
         )
-        returnس
+        return
 
     # الخدمات
     mapping = {
