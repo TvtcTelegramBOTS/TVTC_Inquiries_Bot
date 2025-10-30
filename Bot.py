@@ -126,8 +126,55 @@ def extract_first_name(full_name: str) -> str:
     return parts[0]
 
 # =========================
+# تهيئة الفهارس (تشغل بالخلفية)
+# =========================
+INDEXES = {
+    "schedule": {},
+    "advisor": None,
+    "remaining": {},
+    "gpa": {},
+    "majors": {},
+    "ids": {},
+}
+
+# =========================
 # فهرسة PDF (مع تقدم لحظي)
 # =========================
+def build_index(pdf_path, index_path="schedule_index.json"):
+    """فهرسة ملف الجدول (Schedule) لاستخراج مواقع المتدربين حسب أرقامهم."""
+    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
+    try:
+        if not os.path.exists(pdf_path):
+            print(f"⚠️ الملف {pdf_path} غير موجود.", flush=True)
+            return {}
+
+        print(f"⏳ فهرسة الملف: {pdf_path}", flush=True)
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        index = {}
+        start_time = time.time()
+
+        for i, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+            for m in re.findall(r"\b44\d{7}\b", text):
+                if m not in index:
+                    index[m] = i - 1
+            percent = (i / total_pages) * 100
+            _set_status(index_progress=percent)
+            print(f"📄 فهرسة الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
+            time.sleep(0.01)
+
+        elapsed = time.time() - start_time
+        print(f"✅ تم فهرسة {len(index)} متدرب من {pdf_path} خلال {elapsed:.1f} ثانية.", flush=True)
+        return index
+    except Exception as e:
+        print("❌ خطأ أثناء فهرسة الجدول:", e, flush=True)
+        import traceback; traceback.print_exc()
+        return {}
+    finally:
+        _set_status(indexing=False, current_file="", index_progress=0.0)
+
+
 def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
@@ -149,11 +196,11 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
             for match in re.findall(r"\b44\d{7}\b", text):
-                index.setdefault(match, []).append(i-1)  # صفر-مؤشر
+                index.setdefault(match, []).append(i - 1)
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
             print(f"فهرسة remaining: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
-            time.sleep(0.01)  # السماح لخادم الحالة بالرد
+            time.sleep(0.01)
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
@@ -169,6 +216,77 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         return {}
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
+
+
+def build_ids_index(pdf_path, index_path="ids_index.json"):
+    try:
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            meta_mtime = float(open(meta_path, "r").read())
+            if pdf_mtime <= meta_mtime:
+                print("✅ فهرس IDs جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+        if not os.path.exists(pdf_path):
+            print(f"⚠️ ملف IDs غير موجود: {pdf_path}", flush=True)
+            return {}
+
+        print(f"🔍 بناء فهرس IDs من {pdf_path} ...", flush=True)
+        reader = PdfReader(pdf_path)
+        index = {}
+
+        sid_re = re.compile(r'\b(44\d{7})\b')
+        nid_re = re.compile(r'\b([0-9٠-٩]{10})\b')
+
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            if not re.search(r'44\d{7}', text):
+                continue
+
+            lines = [re.sub(r'\s+', ' ', ln).strip() for ln in text.splitlines() if ln.strip()]
+            for i, line in enumerate(lines):
+                for sid in sid_re.findall(line):
+                    window_idx = range(max(0, i - 4), min(len(lines), i + 5))
+                    chosen_nid = None
+                    best_name = ""
+
+                    for j in window_idx:
+                        ln = lines[j]
+                        for raw in nid_re.findall(ln.replace(" ", "")):
+                            nid = normalize_digits(raw)
+                            if is_valid_nid(nid):
+                                chosen_nid = nid
+                                break
+                        if looks_like_ar_name(ln):
+                            nm = clean_ar_name(ln)
+                            if 3 <= len(nm) <= 40 and len(nm) > len(best_name):
+                                best_name = nm
+                        if chosen_nid and best_name:
+                            break
+
+                    if sid not in index:
+                        index[sid] = {}
+                    if chosen_nid:
+                        index[sid]["nid"] = chosen_nid
+                    if best_name:
+                        index[sid]["name"] = best_name
+
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
+
+        print(f"✅ تم بناء فهرس IDs ({len(index)} متدرب).", flush=True)
+        return index
+    except Exception as e:
+        print("❌ خطأ أثناء فهرسة IDs:", e, flush=True)
+        import traceback; traceback.print_exc()
+        return {}
+    finally:
+        _set_status(indexing=False, current_file="", index_progress=0.0)
+
 
 def build_majors_index(pdf_path, index_path="majors_index.json"):
     try:
@@ -209,110 +327,34 @@ def build_majors_index(pdf_path, index_path="majors_index.json"):
         import traceback; traceback.print_exc()
         return {}
 
-def build_ids_index(pdf_path, index_path="ids_index.json"):
-    """
-    يبني فهرساً بالشكل:
-    {
-        "44xxxxxxx": {"nid": "1xxxxxxxxx", "name": "الاسم الكامل"},
-        ...
-    }
-    الاستراتيجية:
-    - نقرأ الصفحة كسطور.
-    - لكل سطر فيه رقم متدرب 44xxxxxxx، نبحث في نفس السطر ± سطرين عن:
-      * هوية (1 + 9 أرقام) بعد التطبيع
-      * اسم عربي يبدو منطقياً
-    - نأخذ أقرب تطابق ومقبول.
-    """
+
+def initialize_indexes():
+    print("🚀 بدء تشغيل النظام وفهرسة الملفات بالخلفية...", flush=True)
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس IDs جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        print("\n📂 فهرسة SCHEDULE ...", flush=True)
+        INDEXES["schedule"] = build_index(FILES["schedule"])
+        time.sleep(0.3)
 
-        if not os.path.exists(pdf_path):
-            print(f"⚠️ ملف IDs غير موجود: {pdf_path}", flush=True)
-            return {}
+        print("\n📂 فهرسة REMAINING ...", flush=True)
+        INDEXES["remaining"] = build_remaining_index(FILES["remaining"])
+        time.sleep(0.3)
 
-        print(f"🔍 بناء فهرس IDs من {pdf_path} ...", flush=True)
-        reader = PdfReader(pdf_path)
-        index = {}
+        INDEXES["gpa"] = {}
 
-        sid_re = re.compile(r'\b(44\d{7})\b')
-        # لاحظ: نقبل أحياناً أرقام عربية-هندية ثم نطبّعها
-        nid_re = re.compile(r'\b([0-9٠-٩]{10})\b')
+        print("\n📂 فهرسة IDs ...", flush=True)
+        INDEXES["ids"] = build_ids_index(FILES["ids"])
+        time.sleep(0.3)
 
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            # نقسم لأسطر للمضاهاة القريبة
-            lines = [re.sub(r'\s+', ' ', ln).strip() for ln in text.splitlines() if ln.strip()]
+        print("\n📂 فهرسة MAJORS ...", flush=True)
+        INDEXES["majors"] = build_majors_index(FILES["majors"])
+        time.sleep(0.3)
 
-            for i, line in enumerate(lines):
-                # طابق أرقام المتدرب في هذا السطر
-                for sid in sid_re.findall(line):
-                    # نبحث في نافذة الأسطر القريبة: السطر نفسه ± 2
-                    window_idx = range(max(0, i - 2), min(len(lines), i + 3))
-                    chosen_nid = None
-                    chosen_name = None
-                    best_name = ""
-
-                    for j in window_idx:
-                        ln = lines[j]
-
-                        # التقط أي 10 أرقام وطبّعها ثم تحقق بصيغة الهوية الصحيحة
-                        for raw in nid_re.findall(ln):
-                            nid = normalize_digits(raw)
-                            if is_valid_nid(nid):
-                                chosen_nid = nid
-                                break
-                        if chosen_nid and best_name:
-                            break
-
-                        # التقط اسم عربي معقول
-                        if looks_like_ar_name(ln):
-                            nm = clean_ar_name(ln)
-                            # اختر الاسم "الأفضل" (الأطول قليلاً حتى 40 حرف مثلاً)
-                            if 3 <= len(nm) <= 40 and len(nm) > len(best_name):
-                                best_name = nm
-
-                    if best_name:
-                        chosen_name = best_name
-
-                    # خزّن النتائج
-                    if sid not in index:
-                        index[sid] = {}
-                    if chosen_nid:
-                        index[sid]["nid"] = chosen_nid
-                    if chosen_name:
-                        index[sid]["name"] = chosen_name
-
-        # حفظ
-        with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
-
-        print(f"✅ تم بناء فهرس IDs ({len(index)} متدرب).", flush=True)
-        return index
+        INDEXES["advisor"] = None
+        print("\n----------------------------", flush=True)
+        print("✅ جميع الفهارس جاهزة بنجاح.", flush=True)
     except Exception as e:
-        print("❌ خطأ أثناء فهرسة IDs:", e, flush=True)
+        print("❌ خطأ أثناء التهيئة:", e, flush=True)
         import traceback; traceback.print_exc()
-        return {}
-
-# =========================
-# تهيئة الفهارس (تشغل بالخلفية)
-# =========================
-INDEXES = {
-    "schedule": {},
-    "advisor": None,
-    "remaining": {},
-    "gpa": {},
-    "majors": {},
-    "ids": {},
-}
 
 def initialize_indexes():
     print("🚀 بدء تشغيل النظام وفهرسة الملفات بالخلفية...", flush=True)
@@ -719,7 +761,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🎉 أهلاً وسهلاً {first_name}!\nالآن يمكنك الاستفادة من خدماتك:",
             reply_markup=keyboard
         )
-        return
+        returnس
 
     # الخدمات
     mapping = {
