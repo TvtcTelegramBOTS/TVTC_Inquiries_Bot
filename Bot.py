@@ -601,7 +601,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-    # تسجيل الخروج
+        # تسجيل الخروج
     if txt.strip() == "📤 تسجيل الخروج":
         last_id = context.user_data.get("student_id")
         context.user_data.clear()
@@ -609,31 +609,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # ✅ نحذف لوحة الأزرار مباشرة بدون رسالة وسيطة
-        await update.message.reply_text(
-            "✅ تم تسجيل خروجك بنجاح.\n\n🔹 يمكنك الآن إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول:",
+        # ✅ حذف لوحة الأزرار وإرسال زر مؤقت لإعادة التسجيل
+        sent_msg = await update.message.reply_text(
+            "✅ تم تسجيل خروجك بنجاح.\n\n⏳ يمكنك إعادة تسجيل الدخول خلال 60 ثانية:",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
+                [InlineKeyboardButton("🔁 إعادة تسجيل الدخول", callback_data="relogin")]
             ])
         )
-        return
 
-    # إعادة تسجيل الدخول
-    if txt == "🔁 إعادة تسجيل الدخول":
-        last_id = context.user_data.get("last_student_id")
-        if not last_id:
-            await update.message.reply_text("⚠️ لا يوجد رقم تدريبي سابق لإعادة تسجيل الدخول.")
-            return
+        async def countdown_message(msg):
+            try:
+                for remaining in range(59, 0, -1):  # كل ثانية
+                    await asyncio.sleep(1)
+                    await msg.edit_text(
+                        f"⏳ يمكنك إعادة تسجيل الدخول خلال {remaining} ثانية...",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔁 إعادة تسجيل الدخول", callback_data="relogin")]
+                        ])
+                    )
+                # بعد انتهاء العد التنازلي
+                await msg.delete()
+                await msg.bot.send_message(
+                    chat_id=msg.chat_id,
+                    text="👋 مرحباً!\nأرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+            except Exception as e:
+                print("⚠️ حدث خطأ أثناء العد التنازلي:", e, flush=True)
 
-        context.user_data["student_id"] = last_id
-
-        # ✅ استخدم دالة موحدة لبناء لوحة الأزرار حسب حالة المتدرب
-        keyboard = build_main_keyboard(last_id)
-
-        await update.message.reply_text(
-            f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}).\nاختر الخدمة:",
-            reply_markup=keyboard
-        )
+        # تشغيل العدّ التنازلي في الخلفية
+        asyncio.create_task(countdown_message(sent_msg))
         return
 
         # ========= مرحلة التحقق على خطوتين =========
