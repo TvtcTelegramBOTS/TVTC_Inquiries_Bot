@@ -733,7 +733,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # 🟢 تعريف الدالة التي تتعامل مع زر "اضغط هنا لإعادة تسجيل الدخول"
+       # 🟢 تعريف الدالة التي تتعامل مع زر "اضغط هنا لإعادة تسجيل الدخول"
     async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
@@ -744,20 +744,21 @@ def main():
                 await query.edit_message_text("⚠️ لا يوجد رقم تدريبي سابق لإعادة تسجيل الدخول.")
                 return
 
-            # إعادة تخزين رقم المتدرب
+            # ✅ حذف رسالة العدّ التنازلي مع الزر فورًا
+            try:
+                await query.delete_message()
+            except Exception:
+                pass
+
+            # ✅ إعادة تخزين رقم المتدرب
             context.user_data["student_id"] = last_id
 
-            # تعديل الرسالة الأصلية لتأكيد الدخول
-            await query.edit_message_text(
-                f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id})."
-            )
-
-            # إرسال رسالة جديدة مع قائمة الخدمات الديناميكية
+            # ✅ إرسال لوحة الخدمات فقط مع رسالة ترحيبية نظيفة
             keyboard = build_main_keyboard(last_id)
 
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="اختر الخدمة:",
+                text=f"✅ تم تسجيل دخولك مجددًا بالرقم ({last_id}).\nاختر الخدمة:",
                 reply_markup=keyboard
             )
 
