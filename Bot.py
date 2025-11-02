@@ -609,21 +609,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # ✅ أولاً نحذف لوحة الأزرار تمامًا
-        await update.message.reply_text(
-            "👋 تم تسجيل خروجك بنجاح. سيتم إخفاء الأزرار...",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        await asyncio.sleep(0.5)
-
-        # ✅ بعدها نرسل رسالة تأكيد جديدة فقط بالزر المضمن
-        inline_keyboard = [
-            [InlineKeyboardButton("🔁 اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
-        ]
-
+        # ✅ نحذف لوحة الأزرار مباشرة بدون رسالة وسيطة
         await update.message.reply_text(
             "✅ تم تسجيل خروجك بنجاح.\n\n🔹 يمكنك الآن إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard)
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔁 اضغط هنا لإعادة تسجيل الدخول", callback_data="relogin")]
+            ])
         )
         return
 
