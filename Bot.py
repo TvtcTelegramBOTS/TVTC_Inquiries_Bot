@@ -601,7 +601,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-            # تسجيل الخروج
+                # تسجيل الخروج
     if txt.strip() == "📤 تسجيل الخروج":
         last_id = context.user_data.get("student_id")
         context.user_data.clear()
@@ -625,28 +625,37 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-        async def countdown_message(msg):
+        async def countdown_message(msg, chat_id):
             try:
-                # 🕒 مجموعة رموز الساعة لتغييرها ديناميكياً
-                clock_emojis = ["🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚", "🕛"]
-
+                # 🕒 مجموعة رموز الساعة لتبديلها كل ثانية
+                clock_emojis = ["🕐","🕑","🕒","🕓","🕔","🕕","🕖","🕗","🕘","🕙","🕚","🕛"]
                 for remaining in range(59, 0, -1):
                     await asyncio.sleep(1)
                     clock = clock_emojis[remaining % len(clock_emojis)]
                     await msg.edit_text(
                         f"✅ تم تسجيل خروجك بنجاح.\n\n"
-                        f"يمكنك إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول خلال {remaining} ثانية {clock}",
+                        f"يمكنك إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول قبل {remaining} ثانية {clock}",
                         reply_markup=InlineKeyboardMarkup([
                             [InlineKeyboardButton("🔁 إعادة تسجيل الدخول", callback_data='relogin')]
                         ])
                     )
-                # 🕒 بعد انتهاء العد التنازلي تُحذف الرسالة فقط
+
+                # ⏳ بعد انتهاء المهلة
                 await msg.delete()
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        "👋 مرحباً!\n"
+                        "أرسل رقمك التدريبي\n"
+                        "(يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك"
+                    ),
+                    reply_markup=ReplyKeyboardRemove()
+                )
             except Exception as e:
                 print("⚠️ خطأ أثناء العد التنازلي:", e, flush=True)
 
         # تشغيل العدّ التنازلي بالخلفية
-        asyncio.create_task(countdown_message(sent_msg))
+        asyncio.create_task(countdown_message(sent_msg, update.effective_chat.id))
         return
 
         # ========= مرحلة التحقق على خطوتين =========
