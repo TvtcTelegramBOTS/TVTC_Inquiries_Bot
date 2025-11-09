@@ -724,7 +724,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # أي رسالة أخرى غير مفهومة
     await update.message.reply_text(
-        "⚠️ يرجى إدخال رقم تدريبي صحيح يبدأ بـ 44 أو اختر خدمة من الأزرار."
+        "⚠️ يرجى إدخال رقم تدريبي صحيح:-.\n"
+        "(يبدأ بـ 44 ويتكون من 7 أرقام)"
     )
 
 # =========================
