@@ -242,14 +242,16 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         print(f"🔍 فهرسة الشهادات ({pdf_path}) ...", flush=True)
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            for match in re.findall(r"\b1\d{9}\b", text):  # ← رقم الهوية
-                index.setdefault(match, []).append(i - 1)
+            # 🟢 دعم الأرقام العربية والإنجليزية
+            for match in re.findall(r"[1١]\d{9}|[1١][٠-٩]{9}", text):
+                nid = normalize_digits(match)
+                if is_valid_nid(nid):
+                    index.setdefault(nid, []).append(i - 1)
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
             if i % 10 == 0 or i == total_pages:
                 print(f"📜 صفحة {i}/{total_pages} - تقدم {percent:.1f}%", flush=True)
 
-        # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
         with open(meta_path, "w") as m:
@@ -549,7 +551,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         await update.message.reply_text("❌ الملف المطلوب غير متاح حالياً.")
         return
 
-       try:
+    try:
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
 
@@ -565,8 +567,6 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
                 await update.message.reply_text("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
                 return
 
-            reader = PdfReader(pdf_path)
-            writer = PdfWriter()
             for i in index[nid]:
                 writer.add_page(reader.pages[i])
 
@@ -609,7 +609,6 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
                 return
             start = index[student_id]
             sorted_students = sorted(index.items(), key=lambda x: x[1])
-            # احصل على نهاية مقطع الطالب عبر الطالب التالي
             end = len(reader.pages)
             for sid, page_idx in sorted_students:
                 if page_idx > start:
@@ -623,15 +622,12 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             writer.write(f)
 
         compressed = f"compressed_{service}_{student_id}.pdf"
-        # 📦 ضغط الملف قبل الإرسال
         if service == "remaining":
-            # نضغط ملف المقررات المتبقية إلزاميًا حتى يكون أسرع في التحميل
             success = compress_pdf_with_ghostscript(output_file, compressed)
             if not success:
                 print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
                 compressed = output_file
         else:
-            # باقي الخدمات تُضغط كالمعتاد فقط
             compress_pdf_with_ghostscript(output_file, compressed)
 
         captions = {
@@ -646,9 +642,12 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             filename=f"{service}_{student_id}.pdf",
             caption=captions.get(service, f"📄 ملف {service} للمتدرب {student_id}")
         )
+
     except Exception as e:
         await update.message.reply_text(f"❌ حدث خطأ أثناء تجهيز الملف: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+        traceback.print_exc()
+
     finally:
         await sent_msg.delete()
         try:
@@ -658,6 +657,8 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
                 os.remove(compressed)
         except Exception:
             pass
+
+
 
 # =========================
 # دالة مساعدة لبناء لوحة الأزرار
