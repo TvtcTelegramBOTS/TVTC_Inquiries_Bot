@@ -175,7 +175,6 @@ def build_index(pdf_path, index_path="schedule_index.json"):
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
-
 def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
