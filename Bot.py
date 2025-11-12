@@ -9,6 +9,7 @@ import asyncio
 import threading
 import subprocess
 import pandas as pd
+import unicodedata
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 from telegram import (
@@ -92,6 +93,23 @@ def normalize_digits(s: str) -> str:
     """تحويل الأرقام العربية-الهندية إلى إنجليزية + إزالة محارف خفية."""
     return (s or "").translate(AR_DIGITS).replace('\u200f', '').replace('\u200e', '').strip()
 
+def normalize_arabic_text(s: str) -> str:
+    """
+    🔧 تطبيع النص العربي:
+    - تحويل Presentation Forms إلى رموز قياسية (NFKC)
+    - تحويل الأرقام الهندية/عربية-الهندية إلى أرقام إنجليزية
+    - إزالة التطويل/التشكيل/محارف خفية
+    """
+    if not s:
+        return ""
+    # تحويل Presentation Forms (مثل ﺍ.. إلخ) إلى الحرف العادي
+    s = unicodedata.normalize("NFKC", s)
+    # تحويل الأرقام العربية-الهندية إلى إنجليزية
+    s = s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    # إزالة التطويل والتشكيل والمحارف الخفية
+    s = re.sub(r"[ـًٌٍَُِّْْ‎‏\u200f\u200e\u200b]", "", s)
+    return s.strip()
+
 def is_valid_nid(nid: str) -> bool:
     """هوية وطنية سعودية: تبدأ بـ 1 وطولها 10 أرقام."""
     nid = normalize_digits(nid)
@@ -136,6 +154,7 @@ INDEXES = {
     "gpa": {},
     "majors": {},
     "ids": {},
+    "certificates": {},  # ← أضف هذا السطر
 }
 
 # =========================
@@ -239,29 +258,33 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         index = {}
 
         print(f"🔍 فهرسة الشهادات ({pdf_path}) ...", flush=True)
-        for i, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
+        start_time = time.time()
 
-            # 🟢 دعم الهوية بالأرقام العربية أو الإنجليزية
-            matches = re.findall(r"[1١][0-9٠-٩]{9}", text)
-            for match in matches:
-                nid = normalize_digits(match)  # تحويل الأرقام العربية إلى إنجليزية
-                if is_valid_nid(nid):         # تأكد من صلاحية الهوية
-                    index.setdefault(nid, []).append(i - 1)
+        for i, page in enumerate(reader.pages, start=1):
+            raw_text = page.extract_text() or ""
+            # طبعًا نطبّع النص أولًا لالتقاط الأرقام العربية والهندية
+            text = normalize_arabic_text(raw_text)
+
+            # التقاط أرقام الهوية بعد التطبيع (أرقام تبدأ بـ1 وطولها 10)
+            for match in re.findall(r"\b1\d{9}\b", text):
+                index.setdefault(match, []).append(i - 1)
 
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
+
             if i % 10 == 0 or i == total_pages:
                 print(f"📜 صفحة {i}/{total_pages} - تقدم {percent:.1f}%", flush=True)
 
-        # حفظ الفهرس النهائي
+        # حفظ الفهرس + ميتا
         with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False)
+            json.dump(index, f, ensure_ascii=False, indent=2)
         with open(meta_path, "w") as m:
             m.write(str(os.path.getmtime(pdf_path)))
 
-        print(f"✅ تم بناء فهرس الشهادات ({len(index)} هوية لديها شهادة واحدة أو أكثر).", flush=True)
+        elapsed = time.time() - start_time
+        print(f"✅ تم بناء فهرس الشهادات ({len(index)} هوية لديها شهادة واحدة أو أكثر) خلال {elapsed:.1f} ثانية.", flush=True)
         return index
+
     except Exception as e:
         print("❌ خطأ أثناء فهرسة الشهادات:", e, flush=True)
         import traceback; traceback.print_exc()
