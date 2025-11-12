@@ -45,6 +45,7 @@ FILES = {
     "gpa": "GPA.pdf",
     "majors": "TNumbers with majors.pdf",
     "ids": "IDs.csv",
+    "certificates": "Certificates.pdf",
 }
 
 # ✅ استخدم متغير البيئة TELEGRAM_TOKEN
@@ -217,6 +218,52 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
+def build_certificates_index(pdf_path, index_path="certificates_index.json"):
+    """📜 فهرسة ملف الشهادات بالاعتماد على رقم الهوية الوطنية (قد تتكرر في عدة صفحات)."""
+    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
+    try:
+        if not os.path.exists(pdf_path):
+            print(f"⚠️ ملف الشهادات غير موجود: {pdf_path}", flush=True)
+            return {}
+
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            meta_mtime = float(open(meta_path, "r").read())
+            if pdf_mtime <= meta_mtime:
+                print("✅ فهرس الشهادات جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        index = {}
+
+        print(f"🔍 فهرسة الشهادات ({pdf_path}) ...", flush=True)
+        for i, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+            for match in re.findall(r"\b1\d{9}\b", text):  # ← رقم الهوية
+                index.setdefault(match, []).append(i - 1)
+            percent = (i / total_pages) * 100
+            _set_status(index_progress=percent)
+            if i % 10 == 0 or i == total_pages:
+                print(f"📜 صفحة {i}/{total_pages} - تقدم {percent:.1f}%", flush=True)
+
+        # حفظ الفهرس
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
+
+        print(f"✅ تم بناء فهرس الشهادات ({len(index)} هوية لديها شهادة واحدة أو أكثر).", flush=True)
+        return index
+    except Exception as e:
+        print("❌ خطأ أثناء فهرسة الشهادات:", e, flush=True)
+        import traceback; traceback.print_exc()
+        return {}
+    finally:
+        _set_status(indexing=False, current_file="", index_progress=0.0)
+
 def load_ids_from_csv(csv_path: str):
     """
     🔹 تحميل بيانات المتدربين من ملف CSV يحتوي على الأعمدة:
@@ -304,6 +351,10 @@ def initialize_indexes():
 
         print("\n📂 فهرسة MAJORS ...", flush=True)
         INDEXES["majors"] = build_majors_index(FILES["majors"])
+        time.sleep(0.3)
+
+        print("\n📂 فهرسة CERTIFICATES ...", flush=True)
+        INDEXES["certificates"] = build_certificates_index(FILES["certificates"])
         time.sleep(0.3)
 
         INDEXES["advisor"] = None
@@ -487,6 +538,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
     messages = {
         "schedule": "📄 جاري تجهيز جدولك...",
         "remaining": "📚 جاري حصر مقرراتك المتبقية...",
+        "certificates": "📜 جاري تجهيز شهاداتك...",
     }
     sent_msg = await update.message.reply_text(messages.get(service, "⏳ جاري تجهيز الملف..."))
 
@@ -497,9 +549,50 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         await update.message.reply_text("❌ الملف المطلوب غير متاح حالياً.")
         return
 
-    try:
+       try:
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
+
+        if service == "certificates":
+            pdf_path = FILES.get("certificates")
+            index = INDEXES.get("certificates")
+            ids_map = INDEXES.get("ids") or {}
+            student_info = ids_map.get(student_id, {})
+            nid = student_info.get("nid")
+
+            if not nid or nid not in index:
+                await sent_msg.delete()
+                await update.message.reply_text("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
+                return
+
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+            for i in index[nid]:
+                writer.add_page(reader.pages[i])
+
+            output_file = f"certificates_{student_id}.pdf"
+            with open(output_file, "wb") as f:
+                writer.write(f)
+
+            compressed = f"compressed_certificates_{student_id}.pdf"
+            success = compress_pdf_with_ghostscript(output_file, compressed)
+            if not success:
+                compressed = output_file
+
+            await update.message.reply_document(
+                open(compressed, "rb"),
+                filename=os.path.basename(compressed),
+                caption=f"📜 شهادات البرامج الخاصة بالمتدرب رقم {student_id}"
+            )
+
+            await sent_msg.delete()
+            try:
+                os.remove(output_file)
+                if compressed != output_file:
+                    os.remove(compressed)
+            except Exception:
+                pass
+            return
 
         if service == "remaining":
             pages = index.get(student_id, [])
@@ -545,6 +638,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             "schedule": f"📄 جدول المتدرب رقم {student_id}",
             "remaining": f"📚 المقررات المتبقية للمتدرب رقم {student_id}",
             "gpa": f"🎓 المعدل للمتدرب رقم {student_id}",
+            "certificates": f"📜 شهادات البرامج الخاصة بالمتدرب {student_id}",
         }
 
         await update.message.reply_document(
@@ -569,8 +663,18 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
 # دالة مساعدة لبناء لوحة الأزرار
 # =========================
 def build_main_keyboard(student_id: str):
-    """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات متبقية أم لا)."""
+    """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات أو شهادات)."""
     has_remaining = student_id in INDEXES.get("remaining", {})
+
+    # نحصل على رقم الهوية من فهرس IDs
+    ids_map = INDEXES.get("ids", {})
+    rec = ids_map.get(student_id, {})
+    nid = rec.get("nid", "")
+
+    # هل يوجد شهادة بناء على رقم الهوية؟
+    has_certificate = False
+    if nid and nid in INDEXES.get("certificates", {}):
+        has_certificate = True
 
     keyboard = [
         [KeyboardButton("📄 جدولي")],
@@ -579,9 +683,13 @@ def build_main_keyboard(student_id: str):
         [KeyboardButton("📤 تسجيل الخروج")]
     ]
 
-    # فقط إذا له مقررات متبقية نضيف الزر بجانب "📄 جدولي"
+    # نضيف المقررات إن وجدت
     if has_remaining:
         keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
+
+    # نضيف زر الشهادات فقط إذا له شهادة
+    if has_certificate:
+        keyboard[1].insert(0, KeyboardButton("📜 شهادات البرامج"))
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -711,6 +819,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👨‍🏫 مرشدي التدريبي": "advisor",
         "🎓 معدلي": "gpa",
         "📑 خطتي التفصيلية": "detailed_plan",
+        "📜 شهادات البرامج": "certificates",
     }
 
     service = mapping.get(txt)
@@ -725,7 +834,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # أي رسالة أخرى غير مفهومة
     await update.message.reply_text(
         "⚠️ يرجى إدخال رقم تدريبي صحيح :\n"
-        "(يبدأ بـ 44 ويتكون من 7 أرقام)"
+        "(يبدأ بـ 44 ويتكون من 9 أرقام)"
     )
 
 # =========================
