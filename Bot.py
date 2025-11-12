@@ -242,16 +242,20 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         print(f"🔍 فهرسة الشهادات ({pdf_path}) ...", flush=True)
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            # 🟢 دعم الأرقام العربية والإنجليزية
-            for match in re.findall(r"[1١]\d{9}|[1١][٠-٩]{9}", text):
-                nid = normalize_digits(match)
-                if is_valid_nid(nid):
+
+            # 🟢 دعم الهوية بالأرقام العربية أو الإنجليزية
+            matches = re.findall(r"[1١][0-9٠-٩]{9}", text)
+            for match in matches:
+                nid = normalize_digits(match)  # تحويل الأرقام العربية إلى إنجليزية
+                if is_valid_nid(nid):         # تأكد من صلاحية الهوية
                     index.setdefault(nid, []).append(i - 1)
+
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
             if i % 10 == 0 or i == total_pages:
                 print(f"📜 صفحة {i}/{total_pages} - تقدم {percent:.1f}%", flush=True)
 
+        # حفظ الفهرس النهائي
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
         with open(meta_path, "w") as m:
