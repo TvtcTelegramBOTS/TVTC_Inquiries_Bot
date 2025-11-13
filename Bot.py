@@ -265,9 +265,11 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
             # طبعًا نطبّع النص أولًا لالتقاط الأرقام العربية والهندية
             text = normalize_arabic_text(raw_text)
 
-            # التقاط أرقام الهوية بعد التطبيع (أرقام تبدأ بـ1 وطولها 10)
-            for match in re.findall(r"\b1\d{9}\b", text):
-                index.setdefault(match, []).append(i - 1)
+            # يلتقط أي رقم يبدأ بـ1 ويليه 9 أرقام حتى لو بينها رموز خفية أو فراغات
+            for raw in re.findall(r"1[\d\s\u200f\u200e\u200b\u0640]{8,15}", text):
+                clean = re.sub(r"[^\d]", "", raw)  # نحذف أي فواصل أو رموز غير رقمية
+                if len(clean) == 10 and clean.startswith("1"):
+                    index.setdefault(clean, []).append(i - 1)
 
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
