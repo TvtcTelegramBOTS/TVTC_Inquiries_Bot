@@ -9,7 +9,11 @@ import asyncio
 import threading
 import subprocess
 import pandas as pd
+import pdfplumber
+import pytesseract
+from PIL import Image
 import unicodedata
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 from telegram import (
@@ -35,6 +39,31 @@ try:
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 except Exception:
     pass
+
+# ==========================
+# 🧹 دالة تطبيع النص العربي (V2)
+# ==========================
+def normalize_arabic_text_v2(s: str) -> str:
+    if not s:
+        return ""
+
+    # 1) تحويل Presentation Forms → Unicode قياسي
+    s = unicodedata.normalize("NFKC", s)
+
+    # 2) تحويل الأرقام العربية الهندية → إنجليزية
+    s = s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+
+    # 3) إزالة المحارف الخفية بالكامل
+    s = re.sub(r"[\u200f\u200e\u200b\u202a\u202b\u202c\u202d\u202e]", "", s)
+
+    # 4) إزالة التطويل والتشكيل
+    s = re.sub(r"[ـًٌٍَُِّْٰ]", "", s)
+
+    # 5) إزالة كل شيء غير رقمي بين أرقام داخل نفس الرقم
+    # مثال: 11‏7‏595‏9584 → 1175959584
+    s = re.sub(r"(?<=\d)[^\d]+(?=\d)", "", s)
+
+    return s.strip()
 
 # =========================
 # إعدادات أساسية
@@ -92,23 +121,6 @@ AR_DIGITS = str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789')
 def normalize_digits(s: str) -> str:
     """تحويل الأرقام العربية-الهندية إلى إنجليزية + إزالة محارف خفية."""
     return (s or "").translate(AR_DIGITS).replace('\u200f', '').replace('\u200e', '').strip()
-
-def normalize_arabic_text(s: str) -> str:
-    """
-    🔧 تطبيع النص العربي:
-    - تحويل Presentation Forms إلى رموز قياسية (NFKC)
-    - تحويل الأرقام الهندية/عربية-الهندية إلى أرقام إنجليزية
-    - إزالة التطويل/التشكيل/محارف خفية
-    """
-    if not s:
-        return ""
-    # تحويل Presentation Forms (مثل ﺍ.. إلخ) إلى الحرف العادي
-    s = unicodedata.normalize("NFKC", s)
-    # تحويل الأرقام العربية-الهندية إلى إنجليزية
-    s = s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
-    # إزالة التطويل والتشكيل والمحارف الخفية
-    s = re.sub(r"[ـًٌٍَُِّْْ‎‏\u200f\u200e\u200b]", "", s)
-    return s.strip()
 
 def is_valid_nid(nid: str) -> bool:
     """هوية وطنية سعودية: تبدأ بـ 1 وطولها 10 أرقام."""
@@ -236,63 +248,59 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
+# ==================================================
+# 📘 OCR فهرسة الشهادات باستخدام Tesseract + تنظيف ذكي
+# ==================================================
 def build_certificates_index(pdf_path, index_path="certificates_index.json"):
-    """📜 فهرسة ملف الشهادات بالاعتماد على رقم الهوية الوطنية (قد تتكرر في عدة صفحات)."""
-    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
+    print("🔍 بدء فهرسة الشهادات عبر OCR...", flush=True)
+
+    index = {}
+
+    if not os.path.exists(pdf_path):
+        print(f"❌ ملف الشهادات غير موجود: {pdf_path}", flush=True)
+        return index
+
     try:
-        if not os.path.exists(pdf_path):
-            print(f"⚠️ ملف الشهادات غير موجود: {pdf_path}", flush=True)
-            return {}
+        with pdfplumber.open(pdf_path) as pdf:
+            total = len(pdf.pages)
 
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس الشهادات جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+            for i, page in enumerate(pdf.pages, start=1):
 
-        reader = PdfReader(pdf_path)
-        total_pages = len(reader.pages)
-        index = {}
+                # استخراج صفحة كصورة
+                img = page.to_image(resolution=300).original
 
-        print(f"🔍 فهرسة الشهادات ({pdf_path}) ...", flush=True)
-        start_time = time.time()
+                # نص OCR الخام
+                raw_text = pytesseract.image_to_string(img, lang="ara+eng")
 
-        for i, page in enumerate(reader.pages, start=1):
-            raw_text = page.extract_text() or ""
-            # طبعًا نطبّع النص أولًا لالتقاط الأرقام العربية والهندية
-            text = normalize_arabic_text(raw_text)
+                # النص بعد التطبيع
+                clean_text = normalize_arabic_text_v2(raw_text)
 
-            # يلتقط أي رقم يبدأ بـ1 ويليه 9 أرقام حتى لو بينها رموز خفية أو فراغات
-            for raw in re.findall(r"1[\d\s\u200f\u200e\u200b\u0640]{8,15}", text):
-                clean = re.sub(r"[^\d]", "", raw)  # نحذف أي فواصل أو رموز غير رقمية
-                if len(clean) == 10 and clean.startswith("1"):
-                    index.setdefault(clean, []).append(i - 1)
+                # Debug واضح
+                print(f"\n===== صفحة {i} =====")
+                print("RAW:", raw_text.replace("\n", " ")[:250])
+                print("CLEAN:", clean_text.replace("\n", " ")[:250])
 
-            percent = (i / total_pages) * 100
-            _set_status(index_progress=percent)
+                # Regex – رقم يبدأ بـ 1 من 10 أرقام
+                matches = re.findall(r"1\d{9}", clean_text)
 
-            if i % 10 == 0 or i == total_pages:
-                print(f"📜 صفحة {i}/{total_pages} - تقدم {percent:.1f}%", flush=True)
+                if matches:
+                    print("✔ هوية/هويات:", matches)
+                    for nid in matches:
+                        index.setdefault(nid, []).append(i - 1)
+                else:
+                    print("✘ لا يوجد هويات في هذه الصفحة")
 
-        # حفظ الفهرس + ميتا
+        # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
 
-        elapsed = time.time() - start_time
-        print(f"✅ تم بناء فهرس الشهادات ({len(index)} هوية لديها شهادة واحدة أو أكثر) خلال {elapsed:.1f} ثانية.", flush=True)
+        print(f"\n✅ تم بناء فهرس الشهادات بنجاح ({len(index)} هوية).")
         return index
 
     except Exception as e:
-        print("❌ خطأ أثناء فهرسة الشهادات:", e, flush=True)
+        print("❌ خطأ أثناء OCR:", e, flush=True)
         import traceback; traceback.print_exc()
         return {}
-    finally:
-        _set_status(indexing=False, current_file="", index_progress=0.0)
 
 def load_ids_from_csv(csv_path: str):
     """
@@ -311,6 +319,7 @@ def load_ids_from_csv(csv_path: str):
         for _, row in df.iterrows():
             sid = str(row.get("رقم المتدرب", "")).strip()
             nid = str(row.get("السجل المدني", "")).strip()
+            nid = normalize_arabic_text_v2(nid)
             name = str(row.get("اسم المتدرب", "")).strip()
             if re.fullmatch(r"44\d{7}", sid) and re.fullmatch(r"1\d{9}", nid):
                 index[sid] = {"nid": nid, "name": name}
@@ -590,14 +599,18 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             student_info = ids_map.get(student_id, {})
             nid = student_info.get("nid")
 
-            if not nid or nid not in index:
+            # ✅ تطبيع رقم الهوية القادم من CSV
+            nid_clean = normalize_arabic_text_v2(str(nid))
+
+            if not nid_clean or nid_clean not in index:
                 await sent_msg.delete()
                 await update.message.reply_text("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
                 return
 
-            for i in index[nid]:
+            # استخدام nid_clean بدل nid
+            for i in index[nid_clean]:
                 writer.add_page(reader.pages[i])
-
+    
             output_file = f"certificates_{student_id}.pdf"
             with open(output_file, "wb") as f:
                 writer.write(f)
