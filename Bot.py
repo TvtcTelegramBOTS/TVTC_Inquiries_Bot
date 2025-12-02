@@ -13,7 +13,6 @@ import pdfplumber
 import pytesseract
 from PIL import Image
 import unicodedata
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
 from telegram import (
