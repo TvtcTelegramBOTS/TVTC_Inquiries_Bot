@@ -733,13 +733,86 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardRemove()
     )
 
+# =========================
+# دالة العد التنازلي بعد تسجيل الخروج
+# =========================
+async def countdown_message(msg, chat_id, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        clock_emojis = ["🕐","🕑","🕒","🕓","🕔","🕕","🕖","🕗","🕘","🕙","🕚","🕛"]
+
+        for remaining in range(59, 0, -1):
+            await asyncio.sleep(1)
+            clock = clock_emojis[remaining % len(clock_emojis)]
+
+            try:
+                await msg.edit_text(
+                    f"✅ تم تسجيل خروجك بنجاح.\n\n"
+                    f"يمكنك إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول قبل {remaining} ثانية {clock}",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🔁 إعادة تسجيل الدخول", callback_data='relogin')]
+                    ])
+                )
+            except:
+                break
+
+        try:
+            await msg.delete()
+        except:
+            pass
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                "👋 مرحباً!\n"
+                "أرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك."
+            ),
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print("⚠️ خطأ في العد التنازلي:", e, flush=True)
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
     student_id = convert_arabic_to_english(txt)
     _set_status(last_user=student_id)
     print(f"💬 المستخدم: {txt}", flush=True)
 
-                # تسجيل الخروج
+    # 🚨 إذا كان المستخدم في فترة العد التنازلي وقام بإرسال أي رسالة → ألغِ العد فوراً
+    if "logout_task" in context.user_data:
+        task = context.user_data.pop("logout_task", None)
+        msg_id = context.user_data.pop("logout_message_id", None)
+
+        # إلغاء مهمة العد التنازلي
+        if task:
+            try:
+                task.cancel()
+            except:
+                pass
+
+        # حذف رسالة العد
+        if msg_id:
+            try:
+                await context.bot.delete_message(
+                    chat_id=update.effective_chat.id,
+                    message_id=msg_id
+                )
+            except:
+                pass
+
+        # إعادة المستخدم لشاشة البداية
+        await update.message.reply_text(
+            "👋 مرحباً!\n"
+            "أرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
+    # =============================
+    # تسجيل الخروج
+    # =============================
     if txt.strip() == "📤 تسجيل الخروج":
         last_id = context.user_data.get("student_id")
         context.user_data.clear()
@@ -747,14 +820,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if last_id:
             context.user_data["last_student_id"] = last_id
 
-        # ✅ إزالة لوحة الأزرار (حتى تختفي أيقونة المربعات)
         await update.message.reply_text(
             "جارٍ تسجيل الخروج...",
             reply_markup=ReplyKeyboardRemove()
         )
         await asyncio.sleep(0.3)
 
-        # ✅ إرسال رسالة العد التنازلي مع زر إعادة التسجيل
         sent_msg = await update.message.reply_text(
             "✅ تم تسجيل خروجك بنجاح.\n\n"
             "يمكنك إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول خلال 60 ثانية 🕐",
@@ -763,41 +834,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-        async def countdown_message(msg, chat_id):
-            try:
-                # 🕒 مجموعة رموز الساعة لتبديلها كل ثانية
-                clock_emojis = ["🕐","🕑","🕒","🕓","🕔","🕕","🕖","🕗","🕘","🕙","🕚","🕛"]
-                for remaining in range(59, 0, -1):
-                    await asyncio.sleep(1)
-                    clock = clock_emojis[remaining % len(clock_emojis)]
-                    await msg.edit_text(
-                        f"✅ تم تسجيل خروجك بنجاح.\n\n"
-                        f"يمكنك إدخال رقم تدريبي جديد أو إعادة تسجيل الدخول قبل {remaining} ثانية {clock}",
-                        reply_markup=InlineKeyboardMarkup([
-                            [InlineKeyboardButton("🔁 إعادة تسجيل الدخول", callback_data='relogin')]
-                        ])
-                    )
-
-                # ⏳ بعد انتهاء المهلة
-                await msg.delete()
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=(
-                        "👋 مرحباً!\n"
-                        "أرسل رقمك التدريبي\n"
-                        "(يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك"
-                    ),
-                    reply_markup=ReplyKeyboardRemove()
-                )
-            except Exception as e:
-                print("⚠️ خطأ أثناء العد التنازلي:", e, flush=True)
-
         # تشغيل العدّ التنازلي بالخلفية
-        asyncio.create_task(countdown_message(sent_msg, update.effective_chat.id))
+        task = asyncio.create_task(countdown_message(sent_msg, update.effective_chat.id, context))
+        context.user_data["logout_task"] = task
+        context.user_data["logout_message_id"] = sent_msg.message_id
         return
 
         # ========= مرحلة التحقق على خطوتين =========
-
     # 1️⃣ المستخدم أدخل رقم متدرب صالح 44xxxxxxx
     if re.match(r"^44\d{7}$", student_id):
         if "student_id" in context.user_data:
