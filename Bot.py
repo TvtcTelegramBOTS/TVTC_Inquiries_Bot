@@ -9,8 +9,6 @@ import asyncio
 import threading
 import subprocess
 import pandas as pd
-import pdfplumber
-import pytesseract
 from PIL import Image
 import unicodedata
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -248,10 +246,13 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
 # ==================================================
-# 📘 OCR فهرسة الشهادات باستخدام Tesseract + تنظيف ذكي
+# 📘 فهرسة الشهادات   
 # ==================================================
 def build_certificates_index(pdf_path, index_path="certificates_index.json"):
-    print("🔍 بدء فهرسة الشهادات عبر OCR...", flush=True)
+    """
+    فهرسة الشهادات باستخراج رقم الهوية الإنجليزي مباشرة من نص PDF بدون OCR.
+    """
+    print("🔍 بدء فهرسة الشهادات (بدون OCR)...", flush=True)
 
     index = {}
 
@@ -260,45 +261,31 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         return index
 
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            total = len(pdf.pages)
+        reader = PdfReader(pdf_path)
+        total = len(reader.pages)
 
-            for i, page in enumerate(pdf.pages, start=1):
+        for i, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
 
-                # استخراج صفحة كصورة
-                img = page.to_image(resolution=300).original
+            # 🔴 Regex لرقم هوية سعودي 10 أرقام يبدأ بـ 1
+            matches = re.findall(r"\b1\d{9}\b", text)
 
-                # نص OCR الخام
-                raw_text = pytesseract.image_to_string(img, lang="ara+eng")
-
-                # النص بعد التطبيع
-                clean_text = normalize_arabic_text_v2(raw_text)
-
-                # Debug واضح
-                print(f"\n===== صفحة {i} =====")
-                print("RAW:", raw_text.replace("\n", " ")[:250])
-                print("CLEAN:", clean_text.replace("\n", " ")[:250])
-
-                # Regex – رقم يبدأ بـ 1 من 10 أرقام
-                matches = re.findall(r"1\d{9}", clean_text)
-
-                if matches:
-                    print("✔ هوية/هويات:", matches)
-                    for nid in matches:
-                        index.setdefault(nid, []).append(i - 1)
-                else:
-                    print("✘ لا يوجد هويات في هذه الصفحة")
+            if matches:
+                print(f"✔ صفحة {i}: وجد هويات {matches}")
+                for nid in matches:
+                    index.setdefault(nid, []).append(i - 1)
+            else:
+                print(f"✘ صفحة {i}: لا توجد هويات")
 
         # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
 
-        print(f"\n✅ تم بناء فهرس الشهادات بنجاح ({len(index)} هوية).")
+        print(f"✅ تم بناء فهرس الشهادات بنجاح – عدد الهويات: {len(index)}")
         return index
 
     except Exception as e:
-        print("❌ خطأ أثناء OCR:", e, flush=True)
-        import traceback; traceback.print_exc()
+        print("❌ خطأ أثناء فهرسة الشهادات:", e, flush=True)
         return {}
 
 def load_ids_from_csv(csv_path: str):
@@ -698,8 +685,6 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         except Exception:
             pass
 
-
-
 # =========================
 # دالة مساعدة لبناء لوحة الأزرار
 # =========================
@@ -714,7 +699,12 @@ def build_main_keyboard(student_id: str):
 
     # هل يوجد شهادة بناء على رقم الهوية؟
     has_certificate = False
-    if nid and nid in INDEXES.get("certificates", {}):
+
+    # ✅ تطبيع رقم الهوية من CSV
+    nid_clean = normalize_arabic_text_v2(str(nid)).strip()
+
+    # ✅ المقارنة مع فهرس الشهادات
+    if nid_clean and nid_clean in INDEXES.get("certificates", {}):
         has_certificate = True
 
     keyboard = [
@@ -742,7 +732,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 مرحباً!\nأرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
         reply_markup=ReplyKeyboardRemove()
     )
-
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
