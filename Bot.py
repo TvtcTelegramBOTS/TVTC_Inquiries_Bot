@@ -720,7 +720,7 @@ def build_main_keyboard(student_id: str):
 
     # نضيف زر الشهادات فقط إذا له شهادة
     if has_certificate:
-        keyboard[1].insert(0, KeyboardButton("📜 شهادات البرامج"))
+        keyboard.insert(1, [KeyboardButton("📜 شهادات البرامج")])
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
