@@ -154,6 +154,91 @@ def extract_first_name(full_name: str) -> str:
     return parts[0]
 
 # =========================
+# 🟦 أدوات حساب الأسبوع الحالي
+# =========================
+import openpyxl
+from datetime import datetime
+
+EXCEL_PATH = "weeks_by_terms_final.xlsx"   # تأكد أنه بجانب bot.py
+
+def load_weeks_from_excel(sheet_name):
+    """تحميل الأسابيع من شيت محدد (Term1 أو Term2)."""
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    ws = wb[sheet_name]
+
+    weeks = {}
+
+    for col in range(1, ws.max_column + 1):
+        week_dates = []
+        for row in range(2, 7):  # 5 أيام الأسبوع
+            value = ws.cell(row=row, column=col).value
+            if value and not value.startswith("—"):
+                try:
+                    dt = datetime.strptime(value, "%Y-%m-%d")
+                    week_dates.append(dt)
+                except:
+                    pass
+        weeks[col] = sorted(week_dates)
+
+    return weeks
+
+def detect_current_term():
+    """تحديد الفصل الصحيح حسب تاريخ اليوم مقارنة بأول تاريخ داخل كل شيت."""
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+
+    terms = ["Term1", "Term2"]
+    today = datetime.today()
+
+    first_dates = {}
+
+    for term in terms:
+        ws = wb[term]
+        # أول أسبوع = العمود 1
+        # أول يوم = row 2
+        value = ws.cell(row=2, column=1).value
+
+        if value and not value.startswith("—"):
+            try:
+                dt = datetime.strptime(value, "%Y-%m-%d")
+                first_dates[term] = dt
+            except:
+                pass
+
+    # الآن نقارن بين التواريخ
+    if len(first_dates) == 2:
+        if today < first_dates["Term2"]:
+            return "Term1"
+        else:
+            return "Term2"
+
+    # fallback إذا لم تكتمل التواريخ
+    return "Term1"
+
+def detect_current_week(sheet_name="Term1"):
+    """إرجاع رقم الأسبوع الحالي، وإن كان بين أسبوعين يرجّع السابق."""
+    weeks = load_weeks_from_excel(sheet_name)
+    today = datetime.today()
+
+    last_week_with_dates = None
+
+    for week_number, dates in weeks.items():
+        if not dates:
+            continue
+
+        start = dates[0]
+        end = dates[-1]
+
+        # اليوم داخل هذا الأسبوع？
+        if start <= today <= end:
+            return week_number
+
+        # اليوم بعد الأسبوع → مرشح كأسبوع سابق
+        if end < today:
+            last_week_with_dates = week_number
+
+    return last_week_with_dates
+
+# =========================
 # تهيئة الفهارس (تشغل بالخلفية)
 # =========================
 INDEXES = {
@@ -711,6 +796,7 @@ def build_main_keyboard(student_id: str):
         [KeyboardButton("📄 جدولي")],
         [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
         [KeyboardButton("📑 خطتي التفصيلية")],
+        [KeyboardButton("الأسبوع الحالي")],
         [KeyboardButton("📤 تسجيل الخروج")]
     ]
 
@@ -910,6 +996,43 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "(يبدأ بـ 44 ويتكون من 9 أرقام)"
     )
 
+# تحويل رقم الأسبوع إلى نص عربي
+WEEK_ARABIC = {
+    1: "الأول",
+    2: "الثاني",
+    3: "الثالث",
+    4: "الرابع",
+    5: "الخامس",
+    6: "السادس",
+    7: "السابع",
+    8: "الثامن",
+    9: "التاسع",
+    10: "العاشر",
+    11: "الحادي عشر",
+    12: "الثاني عشر",
+    13: "الثالث عشر",
+    14: "الرابع عشر",
+    15: "الخامس عشر",
+    16: "السادس عشر",
+    17: "السابع عشر",
+    18: "الثامن عشر",
+    19: "التاسع عشر"
+}
+
+# =========================
+# 🟦 هاندلر زر الأسبوع الحالي (النسخة الصحيحة النهائية)
+# =========================
+async def current_week_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    term = detect_current_term()
+    week = detect_current_week(term)
+
+    if week:
+        week_name = WEEK_ARABIC.get(week, str(week))
+        term_name = "الأول" if term == "Term1" else "الثاني"
+    await update.message.reply_text(f"📅 نحن الآن في الأسبوع {week_name} – الفصل {term_name}")
+    else:
+        await update.message.reply_text("⚠️ لا يمكن تحديد الأسبوع حالياً.")
+
 # =========================
 # التشغيل الرئيسي
 # =========================
@@ -924,6 +1047,10 @@ def main():
     # 🟢 معالجات الأوامر والرسائل
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # زر الأسبوع الحالي
+    app.add_handler(MessageHandler(filters.Regex("^الأسبوع الحالي$"), current_week_handler))
+
 
        # 🟢 تعريف الدالة التي تتعامل مع زر "اضغط هنا لإعادة تسجيل الدخول"
     async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
