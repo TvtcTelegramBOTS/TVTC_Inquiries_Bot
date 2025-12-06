@@ -1029,7 +1029,7 @@ async def current_week_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if week:
         week_name = WEEK_ARABIC.get(week, str(week))
         term_name = "الأول" if term == "Term1" else "الثاني"
-    await update.message.reply_text(f"📅 نحن الآن في الأسبوع {week_name} – الفصل {term_name}")
+        await update.message.reply_text(f"📅 نحن الآن في الأسبوع {week_name} – الفصل {term_name}")
     else:
         await update.message.reply_text("⚠️ لا يمكن تحديد الأسبوع حالياً.")
 
