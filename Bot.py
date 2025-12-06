@@ -796,7 +796,7 @@ def build_main_keyboard(student_id: str):
         [KeyboardButton("📄 جدولي")],
         [KeyboardButton("👨‍🏫 مرشدي التدريبي"), KeyboardButton("🎓 معدلي")],
         [KeyboardButton("📑 خطتي التفصيلية")],
-        [KeyboardButton("الأسبوع الحالي")],
+        [KeyboardButton("📅 الأسبوع الحالي")],
         [KeyboardButton("📤 تسجيل الخروج")]
     ]
 
@@ -971,24 +971,45 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # الخدمات
-    mapping = {
-        "📄 جدولي": "schedule",
-        "📚 مقرراتي المتبقية": "remaining",
-        "👨‍🏫 مرشدي التدريبي": "advisor",
-        "🎓 معدلي": "gpa",
-        "📑 خطتي التفصيلية": "detailed_plan",
-        "📜 شهادات البرامج": "certificates",
-    }
+        # =============================
+    # ⛔ منع استخدام الخدمات بدون تسجيل دخول
+    # =============================
+    protected_buttons = [
+        "📜 شهادات البرامج المساندة",
+        "📄 جدولي",
+        "📚 مقرراتي المتبقية",
+        "👨‍🏫 مرشدي التدريبي",
+        "🎓 معدلي",
+        "📑 خطتي التفصيلية",
+        "📅 الأسبوع الحالي"
+    ]
 
-    service = mapping.get(txt)
-    if service:
-        sid = context.user_data.get("student_id")
-        if not sid:
+    if txt in protected_buttons:
+        # إذا لم يسجل دخول → نمنعه
+        if "student_id" not in context.user_data:
             await update.message.reply_text("⚠️ الرجاء إدخال رقمك التدريبي أولاً.")
             return
-        await send_pdf(update, context, service)
-        return
+
+        # زر الأسبوع الحالي
+        if txt == "📅 الأسبوع الحالي":
+            await current_week_handler(update, context)
+            return
+
+        # الخدمات الأخرى
+        mapping = {
+            "📄 جدولي": "schedule",
+            "📚 مقرراتي المتبقية": "remaining",
+            "👨‍🏫 مرشدي التدريبي": "advisor",
+            "🎓 معدلي": "gpa",
+            "📑 خطتي التفصيلية": "detailed_plan",
+            "📜 شهادات البرامج المساندة": "certificates",
+        }
+
+        service = mapping.get(txt)
+        if service:
+            sid = context.user_data.get("student_id")
+            await send_pdf(update, context, service)
+            return
 
     # أي رسالة أخرى غير مفهومة
     await update.message.reply_text(
