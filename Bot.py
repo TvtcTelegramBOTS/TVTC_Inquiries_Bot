@@ -159,7 +159,7 @@ def extract_first_name(full_name: str) -> str:
 import openpyxl
 from datetime import datetime
 
-EXCEL_PATH = "weeks_by_terms_final.xlsx"   # تأكد أنه بجانب bot.py
+EXCEL_PATH = "Calender.xlsx"   # تأكد أنه بجانب bot.py
 
 def load_weeks_from_excel(sheet_name):
     """تحميل الأسابيع من شيت محدد (Term1 أو Term2)."""
