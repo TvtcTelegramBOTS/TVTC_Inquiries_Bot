@@ -576,11 +576,11 @@ async def send_gpa(update, context, student_id):
 
 # خرائط العبارات إلى ملفات الخطط + كابتشنات
 MAJOR_PHRASES_TO_PLAN = {
-    "قيرتتلارصاتتللانلتتلااييرت": "VocationalSafetyAndHealth.pdf",
+    "قيرتتلارصاتت لاااتتلااييرت": "VocationalSafetyAndHealth.pdf",
     "لااا لقللتلا رارهترا": "LabsPlan.pdf",
-    "قعرلتلااصلقمتلالرقرل": "HRplan.pdf",
+    "قيرتت ابرتتلالرقت": "HRplan.pdf",
     "قحرتتفاارتتلالرقت": "EPplan.pdf",
-    "قلرتترغاتتلةمارت": "FoodSafetyPlan.pdf",
+    "قيرتترماتتلةينرت": "FoodSafetyPlan.pdf",
 }
 PLAN_CAPTIONS = {
     "HRplan.pdf": "💼 الخطة التفصيلية لتخصص الموارد البشرية",
