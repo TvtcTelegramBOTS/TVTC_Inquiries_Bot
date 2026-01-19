@@ -37,19 +37,6 @@ try:
 except Exception:
     pass
 
-
-
-# ==========================
-# 🧹 تطبيع خفيف للبحث داخل PDF (مطابق لاختبارك الذي نجح)
-# ==========================
-def norm_phrase(s: str) -> str:
-    if not s:
-        return ""
-    s = unicodedata.normalize("NFKC", s)
-    s = s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
-    s = re.sub(r"[\u200f\u200e\u200b\u202a\u202b\u202c\u202d\u202e]", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
 # ==========================
 # 🧹 دالة تطبيع النص العربي (V2)
 # ==========================
@@ -113,60 +100,41 @@ def _set_status(**kwargs):
 
 
 def build_majors_plan_index(pdf_path, index_path="majors_plan_index.json"):
-    """
-    ✅ فهرس سريع للخطة التفصيلية:
-        44xxxxxxx -> اسم ملف الخطة (HRplan/EPplan/...)
-
-    - يستخدم norm_phrase (تطبيع خفيف) لأنه أثبت نجاحه في مطابقة العبارات داخل PDF.
-    - يربط IDs الموجودة في نفس الصفحة التي تحتوي عبارة التخصص.
-    - يستخدم .meta حتى لا يعيد البناء إلا إذا تغيّر الـ PDF.
-    """
     try:
         meta_path = index_path + ".meta"
-
-        # إعادة استخدام الفهرس إذا لم يتغير الـ PDF
         if os.path.exists(index_path) and os.path.exists(meta_path):
             pdf_mtime = os.path.getmtime(pdf_path)
             try:
                 meta_mtime = float(open(meta_path, "r", encoding="utf-8").read().strip() or "0")
             except Exception:
                 meta_mtime = 0.0
-
             if pdf_mtime <= meta_mtime:
                 print("✅ فهرس خطط التخصصات جاهز مسبقًا.", flush=True)
                 with open(index_path, "r", encoding="utf-8") as f:
                     return json.load(f)
 
-        if not os.path.exists(pdf_path):
-            print(f"❌ ملف التخصصات غير موجود: {pdf_path}", flush=True)
-            return {}
-
         print(f"⏳ بناء فهرس خطط التخصصات (نفس الصفحة) من: {pdf_path}", flush=True)
 
         reader = PdfReader(pdf_path)
         total_pages = len(reader.pages)
-
         sid_re = re.compile(r"\b44\d{7}\b")
 
         out = {}
 
-        # تجهيز عبارات مطبّعة مسبقًا
-        norm_phrases = [(norm_phrase(k), v) for k, v in MAJOR_PHRASES_TO_PLAN.items()]
-
         for i, page in enumerate(reader.pages):
             text = page.extract_text() or ""
-            nt = norm_phrase(text)
+            norm_text = normalize_arabic_text_v2(text)
 
             # تحديد الخطة من نفس الصفحة
             plan = None
-            for ph, plan_file in norm_phrases:
-                if ph and ph in nt:
+            for phrase, plan_file in MAJOR_PHRASES_TO_PLAN.items():
+                if normalize_arabic_text_v2(phrase) in norm_text:
                     plan = plan_file
                     break
 
-            # ربط IDs بالخطة
+            # ربط كل IDs في نفس الصفحة بالخطة
             if plan:
-                ids = set(sid_re.findall(nt))
+                ids = set(sid_re.findall(norm_text))
                 for sid in ids:
                     out[sid] = plan
 
@@ -188,8 +156,6 @@ def build_majors_plan_index(pdf_path, index_path="majors_plan_index.json"):
         import traceback
         traceback.print_exc()
         return {}
-
-
 
 
 def _get_status():
@@ -336,7 +302,6 @@ def detect_current_week(sheet_name="Term1"):
 # تهيئة الفهارس (تشغل بالخلفية)
 # =========================
 INDEXES = {
-    "majors_plan": {},
     "schedule": {},
     "advisor": None,
     "remaining": {},
