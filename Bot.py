@@ -906,8 +906,21 @@ def build_main_keyboard(student_id: str):
 # معالجات الرسائل
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 🧹 1) إلغاء أي مهام عدّ تنازلي
+    task = context.user_data.pop("logout_task", None)
+    if task:
+        try:
+            task.cancel()
+        except:
+            pass
+
+    # 🧹 2) مسح الحالة بالكامل
+    context.user_data.clear()
+
+    # 🧹 3) إزالة لوحة الأزرار والرجوع للبداية
     await update.message.reply_text(
-        "👋 مرحباً!\nأرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
+        "🔄 تم البدء من جديد.\n\n"
+        "👋 أرسل رقمك التدريبي (يبدأ بـ 44 ويتكون من 9 أرقام) للحصول على خدماتك.",
         reply_markup=ReplyKeyboardRemove()
     )
 
