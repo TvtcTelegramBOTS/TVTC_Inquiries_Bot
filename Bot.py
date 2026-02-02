@@ -86,7 +86,9 @@ FILES = {
     "majors": "TNumbers with majors.pdf",
     "ids": "IDs.csv",
     "certificates": "Certificates.pdf",
+    "permission": "permission_to_conduct_research.pdf",
 }
+
 
 # ✅ استخدم متغير البيئة TELEGRAM_TOKEN
 BOT_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -344,6 +346,7 @@ INDEXES = {
     "majors": {},
     "ids": {},
     "certificates": {},  # ← أضف هذا السطر
+    "permission": {},
 }
 
 # =========================
@@ -403,7 +406,10 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
 
         for i, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
-            for match in re.findall(r"\b44\d{7}\b", text):
+            # ✅ اجمع أرقام المتدربين في هذه الصفحة كـ set لمنع تكرار نفس الصفحة
+            # (لو ظهر الرقم مرتين/أكثر داخل نفس الصفحة نضيف رقم الصفحة مرة واحدة فقط)
+            page_ids = set(re.findall(r"\b44\d{7}\b", text))
+            for match in page_ids:
                 index.setdefault(match, []).append(i - 1)
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
@@ -420,6 +426,67 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
         return index
     except Exception as e:
         print("❌ خطأ أثناء فهرسة remaining:", e, flush=True)
+        import traceback; traceback.print_exc()
+        return {}
+    finally:
+        _set_status(indexing=False, current_file="", index_progress=0.0)
+
+
+# ==================================================
+# ✉️ فهرسة خطابات التمكين
+# ==================================================
+def build_permission_index(pdf_path, index_path="permission_index.json"):
+    """
+    فهرسة ملف خطابات التمكين بناءً على رقم المتدرب (44xxxxxxx).
+    يُنشئ خريطة: {student_id: [page_idx, ...]}
+    مع ملف meta لإعادة البناء فقط عند تحديث الـ PDF.
+    """
+    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
+    try:
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            meta_mtime = float(open(meta_path, "r").read())
+            if pdf_mtime <= meta_mtime:
+                print(f"✅ فهرس {pdf_path} (permission) جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+        if not os.path.exists(pdf_path):
+            print(f"⚠️ ملف خطابات التمكين غير موجود: {pdf_path}", flush=True)
+            return {}
+
+        print(f"⏳ فهرسة (permission) الملف: {pdf_path}", flush=True)
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        index = {}
+        start_time = time.time()
+
+        for i, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+
+            # ✅ اجمع أرقام المتدربين في هذه الصفحة كـ set لمنع تكرار نفس الصفحة
+            # (لو ظهر الرقم مرتين/أكثر داخل نفس الصفحة نضيف رقم الصفحة مرة واحدة فقط)
+            matches = set(re.findall(r"\b44\d{7}\b", text))
+            for match in matches:
+                index.setdefault(match, []).append(i - 1)
+
+            percent = (i / total_pages) * 100 if total_pages else 100.0
+            _set_status(index_progress=percent)
+            if i % 10 == 0 or i == total_pages:
+                print(f"فهرسة permission: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
+
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
+
+        elapsed = time.time() - start_time
+        print(f"✅ تم بناء فهرس permission ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
+        return index
+
+    except Exception as e:
+        print("❌ خطأ أثناء فهرسة permission:", e, flush=True)
         import traceback; traceback.print_exc()
         return {}
     finally:
@@ -566,7 +633,11 @@ def initialize_indexes():
         print("\n📂 فهرسة CERTIFICATES ...", flush=True)
         INDEXES["certificates"] = build_certificates_index(FILES["certificates"])
         time.sleep(0.3)
+        print("\n📂 فهرسة PERMISSION LETTERS ...", flush=True)
+        INDEXES["permission"] = build_permission_index(FILES["permission"])
+        time.sleep(0.3)
 
+        
         INDEXES["advisor"] = None
         print("\n----------------------------", flush=True)
         print("✅ جميع الفهارس جاهزة بنجاح.", flush=True)
@@ -678,11 +749,11 @@ async def send_gpa(update, context, student_id):
 
 # خرائط العبارات إلى ملفات الخطط + كابتشنات
 MAJOR_PHRASES_TO_PLAN = {
-    "قيرتتلارصاتت لاااتتلااييرت": "VocationalSafetyAndHealth.pdf",
-    "لااا لقللتلا رارهترا": "LabsPlan.pdf",
-    "عرلتلاارلقمتلاليقرل": "HRplan.pdf",
-    "قيرتت ابرتتلالرقت": "EPplan.pdf",
-    "قيرتترماتتلةينرت": "FoodSafetyPlan.pdf",
+    "قيرتتلارصاتت لاااتتلاا يرت": "VocationalSafetyAndHealth.pdf",
+    "قيراتلااا لقلبتلا رارضترا": "LabsPlan.pdf",
+    "لاارلقمتلالاقرل": "HRplan.pdf",
+    "فاارتتلالرقت": "EPplan.pdf",
+    "قارتترماتتلةينرت": "FoodSafetyPlan.pdf",
 }
 
 PLAN_CAPTIONS = {
@@ -697,28 +768,35 @@ def _normalize_spaces(s: str) -> str:
     return " ".join((s or "").split())
 
 async def send_detailed_plan(update, context, student_id):
-    # ✅ استخدام فهرس سريع بدل قراءة PDF عند كل طلب
+    # لو جاء الطلب من زر inline لازم نجاوب الـ callback
+    query = update.callback_query
+    if query:
+        await query.answer()
+
+    # effective_message تشتغل سواء كان update رسالة عادية أو callback
+    msg = update.effective_message
+
     plan_index = INDEXES.get("majors_plan") or {}
     plan_file_to_send = plan_index.get(str(student_id).strip())
 
     if not plan_file_to_send:
-        await update.message.reply_text("⚠️ لم يتم العثور على التخصص المناسب.")
+        await msg.reply_text("⚠️ لم يتم العثور على التخصص المناسب.")
         return
 
     if not os.path.exists(plan_file_to_send):
-        await update.message.reply_text(f"⚠️ تم تحديد الخطة ({plan_file_to_send}) لكن الملف غير موجود في السيرفر.")
+        await msg.reply_text(f"⚠️ تم تحديد الخطة ({plan_file_to_send}) لكن الملف غير موجود في السيرفر.")
         return
 
     caption = PLAN_CAPTIONS.get(plan_file_to_send, "📑 خطتك التفصيلية")
     try:
         with open(plan_file_to_send, "rb") as f:
-            await update.message.reply_document(
+            await msg.reply_document(
                 document=f,
                 filename=os.path.basename(plan_file_to_send),
                 caption=caption
             )
     except Exception:
-        await update.message.reply_text("⚠️ تعذر إرسال الملف. تحقق من صلاحيات القراءة أو حجم الملف.")
+        await msg.reply_text("⚠️ تعذر إرسال الملف. تحقق من صلاحيات القراءة أو حجم الملف.")
 
 
 async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: str):
@@ -741,6 +819,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         "schedule": "📄 جاري تجهيز جدولك...",
         "remaining": "📚 جاري حصر مقرراتك المتبقية...",
         "certificates": "📜 جاري تجهيز شهاداتك...",
+        "permission": "✉️ جاري تجهيز خطاب التمكين...",
     }
     sent_msg = await update.message.reply_text(messages.get(service, "⏳ جاري تجهيز الملف..."))
 
@@ -796,6 +875,42 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
                     os.remove(compressed)
             except Exception:
                 pass
+
+        if service == "permission":
+            # ✅ حماية إضافية: لو تكرر رقم الصفحة بالخطأ... خذ كل صفحة مرة واحدة فقط
+            pages = sorted(set(index.get(student_id, [])))
+            if not pages:
+                await sent_msg.delete()
+                await update.message.reply_text("⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.")
+                return
+
+            for i in pages:
+                writer.add_page(reader.pages[i])
+
+            output_file = f"permission_{student_id}.pdf"
+            with open(output_file, "wb") as f:
+                writer.write(f)
+
+            compressed = f"compressed_permission_{student_id}.pdf"
+            success = compress_pdf_with_ghostscript(output_file, compressed)
+            if not success:
+                compressed = output_file
+
+            await update.message.reply_document(
+                open(compressed, "rb"),
+                filename=os.path.basename(compressed),
+                caption=f"✉️ خطاب التمكين للمتدرب رقم {student_id}"
+            )
+
+            await sent_msg.delete()
+            try:
+                os.remove(output_file)
+                if compressed != output_file:
+                    os.remove(compressed)
+            except Exception:
+                pass
+            return
+
             return
 
         if service == "remaining":
@@ -839,6 +954,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             "remaining": f"📚 المقررات المتبقية للمتدرب رقم {student_id}",
             "gpa": f"🎓 المعدل للمتدرب رقم {student_id}",
             "certificates": f"📜 شهادات البرامج الخاصة بالمتدرب {student_id}",
+            "permission": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
         }
 
         await update.message.reply_document(
@@ -868,6 +984,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
 def build_main_keyboard(student_id: str):
     """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات أو شهادات)."""
     has_remaining = student_id in INDEXES.get("remaining", {})
+    has_permission = student_id in INDEXES.get("permission", {})
 
     # نحصل على رقم الهوية من فهرس IDs
     ids_map = INDEXES.get("ids", {})
@@ -899,6 +1016,10 @@ def build_main_keyboard(student_id: str):
     # نضيف زر الشهادات فقط إذا له شهادة
     if has_certificate:
         keyboard.insert(1, [KeyboardButton("📜 شهادات البرامج المساندة")])
+
+    # نضيف زر خطابات التمكين فقط إذا له خطاب
+    if has_permission:
+        keyboard.insert(2 if has_certificate else 1, [KeyboardButton("✉️ خطابات التمكين")])
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -1086,7 +1207,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👨‍🏫 مرشدي التدريبي",
         "🎓 معدلي",
         "📑 خطتي التفصيلية",
-        "📅 الأسبوع الحالي"
+        "📅 الأسبوع الحالي",
+        "✉️ خطابات التمكين"
     ]
 
     if txt in protected_buttons:
@@ -1108,6 +1230,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎓 معدلي": "gpa",
             "📑 خطتي التفصيلية": "detailed_plan",
             "📜 شهادات البرامج المساندة": "certificates",
+            "✉️ خطابات التمكين": "permission",
         }
 
         service = mapping.get(txt)
