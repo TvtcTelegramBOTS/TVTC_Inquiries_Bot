@@ -87,6 +87,10 @@ FILES = {
     "ids": "IDs.csv",
     "certificates": "Certificates.pdf",
     "permission": "permission_to_conduct_research.pdf",
+    "aramco_training": os.path.join(
+        "خطابات_طلب_فرصة_تدريبية_في_شركة_ارامكو_للفصل_الأول_1448.pdf",
+        "خطابات_طلب_فرصة_تدريبية_في_شركة_ارامكو_للفصل_الأول_1448.pdf",
+    ),
 }
 
 
@@ -347,6 +351,7 @@ INDEXES = {
     "ids": {},
     "certificates": {},  # ← أضف هذا السطر
     "permission": {},
+    "aramco_training": {},
 }
 
 # =========================
@@ -492,6 +497,63 @@ def build_permission_index(pdf_path, index_path="permission_index.json"):
     finally:
         _set_status(indexing=False, current_file="", index_progress=0.0)
 
+
+# ==================================================
+# 🏢 فهرسة خطابات تدريب أرامكو
+# ==================================================
+def build_aramco_training_index(pdf_path, index_path="aramco_training_index.json"):
+    """
+    فهرسة ملف خطابات تدريب أرامكو بناءً على رقم المتدرب (44xxxxxxx).
+    النتيجة: {student_id: [page_idx, ...]}.
+    """
+    _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
+    try:
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            meta_mtime = float(open(meta_path, "r").read())
+            if pdf_mtime <= meta_mtime:
+                print(f"✅ فهرس {pdf_path} (aramco training) جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+        if not os.path.exists(pdf_path):
+            print(f"⚠️ ملف خطابات تدريب أرامكو غير موجود: {pdf_path}", flush=True)
+            return {}
+
+        print(f"⏳ فهرسة (aramco training) الملف: {pdf_path}", flush=True)
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        index = {}
+        start_time = time.time()
+
+        for i, page in enumerate(reader.pages, start=1):
+            text = page.extract_text() or ""
+            matches = set(re.findall(r"\b44\d{7}\b", text))
+            for match in matches:
+                index.setdefault(match, []).append(i - 1)
+
+            percent = (i / total_pages) * 100 if total_pages else 100.0
+            _set_status(index_progress=percent)
+            if i % 10 == 0 or i == total_pages:
+                print(f"فهرسة aramco training: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
+
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
+
+        elapsed = time.time() - start_time
+        print(f"✅ تم بناء فهرس aramco training ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
+        return index
+
+    except Exception as e:
+        print("❌ خطأ أثناء فهرسة aramco training:", e, flush=True)
+        import traceback; traceback.print_exc()
+        return {}
+    finally:
+        _set_status(indexing=False, current_file="", index_progress=0.0)
+
 # ==================================================
 # 📘 فهرسة الشهادات   
 # ==================================================
@@ -518,11 +580,11 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
             matches = re.findall(r"\b1\d{9}\b", text)
 
             if matches:
-                print(f"✔ صفحة {i}: وجد هويات {matches}")
+                print(f"✔ صفحة {i}: وجد {len(matches)} هوية.", flush=True)
                 for nid in matches:
                     index.setdefault(nid, []).append(i - 1)
             else:
-                print(f"✘ صفحة {i}: لا توجد هويات")
+                print(f"✘ صفحة {i}: لا توجد هويات", flush=True)
 
         # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
@@ -637,6 +699,10 @@ def initialize_indexes():
         INDEXES["permission"] = build_permission_index(FILES["permission"])
         time.sleep(0.3)
 
+        print("\n📂 فهرسة ARAMCO TRAINING LETTERS ...", flush=True)
+        INDEXES["aramco_training"] = build_aramco_training_index(FILES["aramco_training"])
+        time.sleep(0.3)
+
         
         INDEXES["advisor"] = None
         print("\n----------------------------", flush=True)
@@ -686,6 +752,12 @@ def compress_pdf_with_ghostscript(input_file: str, output_file: str, max_size_mb
 # =========================
 # الخدمات
 # =========================
+async def safe_delete_message(message):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
 async def send_advisor(update, context, student_id):
     csv_path = FILES.get("advisor")
     if not os.path.exists(csv_path):
@@ -820,15 +892,19 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         "remaining": "📚 جاري حصر مقرراتك المتبقية...",
         "certificates": "📜 جاري تجهيز شهاداتك...",
         "permission": "✉️ جاري تجهيز خطاب التمكين...",
+        "aramco_training": "🏢 جاري تجهيز خطاب تدريب أرامكو...",
     }
     sent_msg = await update.message.reply_text(messages.get(service, "⏳ جاري تجهيز الملف..."))
 
     pdf_path = FILES.get(service)
     index = INDEXES.get(service)
     if not pdf_path or not os.path.exists(pdf_path):
-        await sent_msg.delete()
+        await safe_delete_message(sent_msg)
         await update.message.reply_text("❌ الملف المطلوب غير متاح حالياً.")
         return
+
+    output_file = None
+    compressed = None
 
     try:
         reader = PdfReader(pdf_path)
@@ -845,7 +921,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             nid_clean = normalize_arabic_text_v2(str(nid))
 
             if not nid_clean or nid_clean not in index:
-                await sent_msg.delete()
+                await safe_delete_message(sent_msg)
                 await update.message.reply_text("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
                 return
 
@@ -862,68 +938,73 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             if not success:
                 compressed = output_file
 
-            await update.message.reply_document(
-                open(compressed, "rb"),
-                filename=os.path.basename(compressed),
-                caption=f"📜 شهادات البرامج الخاصة بالمتدرب رقم {student_id}"
-            )
+            with open(compressed, "rb") as f:
+                await update.message.reply_document(
+                    f,
+                    filename=os.path.basename(compressed),
+                    caption=f"📜 شهادات البرامج الخاصة بالمتدرب رقم {student_id}"
+                )
 
-            await sent_msg.delete()
-            try:
-                os.remove(output_file)
-                if compressed != output_file:
-                    os.remove(compressed)
-            except Exception:
-                pass
+            await safe_delete_message(sent_msg)
+            return
 
-        if service == "permission":
-            # ✅ حماية إضافية: لو تكرر رقم الصفحة بالخطأ... خذ كل صفحة مرة واحدة فقط
+        if service in ("permission", "aramco_training"):
+            service_config = {
+                "permission": {
+                    "missing": "⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.",
+                    "output": f"permission_{student_id}.pdf",
+                    "compressed": f"compressed_permission_{student_id}.pdf",
+                    "filename": f"permission_{student_id}.pdf",
+                    "caption": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
+                },
+                "aramco_training": {
+                    "missing": "⚠️ لا يوجد خطاب تدريب أرامكو مرتبط بهذا الرقم التدريبي.",
+                    "output": f"aramco_training_{student_id}.pdf",
+                    "compressed": f"compressed_aramco_training_{student_id}.pdf",
+                    "filename": f"aramco_training_{student_id}.pdf",
+                    "caption": f"🏢 خطاب تدريب أرامكو للمتدرب رقم {student_id}",
+                },
+            }[service]
+
             pages = sorted(set(index.get(student_id, [])))
             if not pages:
-                await sent_msg.delete()
-                await update.message.reply_text("⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.")
+                await safe_delete_message(sent_msg)
+                await update.message.reply_text(service_config["missing"])
                 return
 
             for i in pages:
                 writer.add_page(reader.pages[i])
 
-            output_file = f"permission_{student_id}.pdf"
+            output_file = service_config["output"]
             with open(output_file, "wb") as f:
                 writer.write(f)
 
-            compressed = f"compressed_permission_{student_id}.pdf"
+            compressed = service_config["compressed"]
             success = compress_pdf_with_ghostscript(output_file, compressed)
             if not success:
                 compressed = output_file
 
-            await update.message.reply_document(
-                open(compressed, "rb"),
-                filename=os.path.basename(compressed),
-                caption=f"✉️ خطاب التمكين للمتدرب رقم {student_id}"
-            )
+            with open(compressed, "rb") as f:
+                await update.message.reply_document(
+                    f,
+                    filename=service_config["filename"],
+                    caption=service_config["caption"]
+                )
 
-            await sent_msg.delete()
-            try:
-                os.remove(output_file)
-                if compressed != output_file:
-                    os.remove(compressed)
-            except Exception:
-                pass
-            return
-
+            await safe_delete_message(sent_msg)
             return
 
         if service == "remaining":
             pages = index.get(student_id, [])
             if not pages:
-                await sent_msg.delete()
+                await safe_delete_message(sent_msg)
                 await update.message.reply_text(f"❌ لم يتم العثور على مقررات المتدرب {student_id}.")
                 return
             for i in pages:
                 writer.add_page(reader.pages[i])
         else:
             if student_id not in index:
-                await sent_msg.delete()
+                await safe_delete_message(sent_msg)
                 await update.message.reply_text("❌ لم يتم العثور على بياناتك.")
                 return
             start = index[student_id]
@@ -947,7 +1028,10 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
                 print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
                 compressed = output_file
         else:
-            compress_pdf_with_ghostscript(output_file, compressed)
+            success = compress_pdf_with_ghostscript(output_file, compressed)
+            if not success:
+                print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
+                compressed = output_file
 
         captions = {
             "schedule": f"📄 جدول المتدرب رقم {student_id}",
@@ -957,11 +1041,12 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
             "permission": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
         }
 
-        await update.message.reply_document(
-            open(compressed, "rb"),
-            filename=f"{service}_{student_id}.pdf",
-            caption=captions.get(service, f"📄 ملف {service} للمتدرب {student_id}")
-        )
+        with open(compressed, "rb") as f:
+            await update.message.reply_document(
+                f,
+                filename=f"{service}_{student_id}.pdf",
+                caption=captions.get(service, f"📄 ملف {service} للمتدرب {student_id}")
+            )
 
     except Exception as e:
         await update.message.reply_text(f"❌ حدث خطأ أثناء تجهيز الملف: {e}")
@@ -969,11 +1054,11 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         traceback.print_exc()
 
     finally:
-        await sent_msg.delete()
+        await safe_delete_message(sent_msg)
         try:
-            if os.path.exists(output_file):
+            if output_file and os.path.exists(output_file):
                 os.remove(output_file)
-            if os.path.exists(compressed) and compressed != output_file:
+            if compressed and os.path.exists(compressed) and compressed != output_file:
                 os.remove(compressed)
         except Exception:
             pass
@@ -985,6 +1070,7 @@ def build_main_keyboard(student_id: str):
     """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات أو شهادات)."""
     has_remaining = student_id in INDEXES.get("remaining", {})
     has_permission = student_id in INDEXES.get("permission", {})
+    has_aramco_training = student_id in INDEXES.get("aramco_training", {})
 
     # نحصل على رقم الهوية من فهرس IDs
     ids_map = INDEXES.get("ids", {})
@@ -1013,13 +1099,21 @@ def build_main_keyboard(student_id: str):
     if has_remaining:
         keyboard[0].append(KeyboardButton("📚 مقرراتي المتبقية"))
 
+    insert_at = 1
+
     # نضيف زر الشهادات فقط إذا له شهادة
     if has_certificate:
-        keyboard.insert(1, [KeyboardButton("📜 شهادات البرامج المساندة")])
+        keyboard.insert(insert_at, [KeyboardButton("📜 شهادات البرامج المساندة")])
+        insert_at += 1
 
     # نضيف زر خطابات التمكين فقط إذا له خطاب
     if has_permission:
-        keyboard.insert(2 if has_certificate else 1, [KeyboardButton("✉️ خطابات التمكين")])
+        keyboard.insert(insert_at, [KeyboardButton("✉️ خطابات التمكين")])
+        insert_at += 1
+
+    # نضيف زر خطاب تدريب أرامكو فقط إذا له خطاب
+    if has_aramco_training:
+        keyboard.insert(insert_at, [KeyboardButton("🏢 خطاب تدريب أرامكو")])
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -1208,7 +1302,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎓 معدلي",
         "📑 خطتي التفصيلية",
         "📅 الأسبوع الحالي",
-        "✉️ خطابات التمكين"
+        "✉️ خطابات التمكين",
+        "🏢 خطاب تدريب أرامكو"
     ]
 
     if txt in protected_buttons:
@@ -1231,6 +1326,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📑 خطتي التفصيلية": "detailed_plan",
             "📜 شهادات البرامج المساندة": "certificates",
             "✉️ خطابات التمكين": "permission",
+            "🏢 خطاب تدريب أرامكو": "aramco_training",
         }
 
         service = mapping.get(txt)
@@ -1291,7 +1387,15 @@ def main():
     threading.Thread(target=initialize_indexes, daemon=True).start()
 
     print("🚀 تشغيل البوت...", flush=True)
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(30)
+        .read_timeout(60)
+        .write_timeout(120)
+        .pool_timeout(30)
+        .build()
+    )
 
     # 🟢 معالجات الأوامر والرسائل
     app.add_handler(CommandHandler("start", start))
