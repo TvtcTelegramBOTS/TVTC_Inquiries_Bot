@@ -1,10 +1,4 @@
 python-telegram-bot==21.4
 pandas
 PyPDF2==3.0.1
-requests
-pdfplumber
-PyPDF2
-pdfplumber
-pytesseract
-Pillow
 openpyxl

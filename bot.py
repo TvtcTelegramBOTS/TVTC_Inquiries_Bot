@@ -9,7 +9,6 @@ import asyncio
 import threading
 import subprocess
 import pandas as pd
-from PIL import Image
 import unicodedata
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse
@@ -361,6 +360,18 @@ def build_index(pdf_path, index_path="schedule_index.json"):
     """فهرسة ملف الجدول (Schedule) لاستخراج مواقع المتدربين حسب أرقامهم."""
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            try:
+                meta_mtime = float(open(meta_path, "r").read())
+            except Exception:
+                meta_mtime = 0.0
+            if pdf_mtime <= meta_mtime:
+                print(f"✅ فهرس {pdf_path} جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
         if not os.path.exists(pdf_path):
             print(f"⚠️ الملف {pdf_path} غير موجود.", flush=True)
             return {}
@@ -378,8 +389,13 @@ def build_index(pdf_path, index_path="schedule_index.json"):
                     index[m] = i - 1
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
-            print(f"📄 فهرسة الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
-            time.sleep(0.01)
+            if i % 100 == 0 or i == total_pages:
+                print(f"📄 فهرسة schedule: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
+
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
 
         elapsed = time.time() - start_time
         print(f"✅ تم فهرسة {len(index)} متدرب من {pdf_path} خلال {elapsed:.1f} ثانية.", flush=True)
@@ -418,8 +434,8 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
                 index.setdefault(match, []).append(i - 1)
             percent = (i / total_pages) * 100
             _set_status(index_progress=percent)
-            print(f"فهرسة remaining: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
-            time.sleep(0.01)
+            if i % 100 == 0 or i == total_pages:
+                print(f"فهرسة remaining: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
@@ -561,8 +577,6 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
     """
     فهرسة الشهادات باستخراج رقم الهوية الإنجليزي مباشرة من نص PDF بدون OCR.
     """
-    print("🔍 بدء فهرسة الشهادات (بدون OCR)...", flush=True)
-
     index = {}
 
     if not os.path.exists(pdf_path):
@@ -570,6 +584,19 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         return index
 
     try:
+        meta_path = index_path + ".meta"
+        if os.path.exists(index_path) and os.path.exists(meta_path):
+            pdf_mtime = os.path.getmtime(pdf_path)
+            try:
+                meta_mtime = float(open(meta_path, "r").read())
+            except Exception:
+                meta_mtime = 0.0
+            if pdf_mtime <= meta_mtime:
+                print("✅ فهرس الشهادات جاهز مسبقًا.", flush=True)
+                with open(index_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+
+        print("🔍 بدء فهرسة الشهادات (بدون OCR)...", flush=True)
         reader = PdfReader(pdf_path)
         total = len(reader.pages)
 
@@ -580,15 +607,17 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
             matches = re.findall(r"\b1\d{9}\b", text)
 
             if matches:
-                print(f"✔ صفحة {i}: وجد {len(matches)} هوية.", flush=True)
                 for nid in matches:
                     index.setdefault(nid, []).append(i - 1)
-            else:
-                print(f"✘ صفحة {i}: لا توجد هويات", flush=True)
+            if i % 10 == 0 or i == total:
+                percent = (i / total) * 100 if total else 100.0
+                print(f"فهرسة certificates: الصفحة {i}/{total} ({percent:.1f}%)", flush=True)
 
         # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
+        with open(meta_path, "w") as m:
+            m.write(str(os.path.getmtime(pdf_path)))
 
         print(f"✅ تم بناء فهرس الشهادات بنجاح – عدد الهويات: {len(index)}")
         return index
@@ -648,10 +677,9 @@ def build_majors_index(pdf_path, index_path="majors_index.json"):
             if student_ids:
                 for sid in student_ids:
                     index[sid] = text
-            if i % 10 == 0 or i == total_pages:
+            if i % 100 == 0 or i == total_pages:
                 percent = (i / total_pages) * 100
                 print(f"📄 فهرسة الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
-                time.sleep(0.01)
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
