@@ -4,6 +4,7 @@ import re
 import sys
 import io
 import json
+import hashlib
 import time
 import asyncio
 import threading
@@ -116,6 +117,55 @@ def _set_status(**kwargs):
     with _status_lock:
         STATUS.update(kwargs)
 
+_fingerprint_cache = {}
+
+def _file_fingerprint(path: str):
+    stat = os.stat(path)
+    abs_path = os.path.abspath(path)
+    cache_key = (abs_path, stat.st_size, stat.st_mtime_ns)
+    cached = _fingerprint_cache.get(cache_key)
+    if cached:
+        return cached
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+
+    fingerprint = {
+        "size": stat.st_size,
+        "sha256": h.hexdigest(),
+    }
+    _fingerprint_cache[cache_key] = fingerprint
+    return fingerprint
+
+def _load_index_if_current(pdf_path: str, index_path: str, ready_message: str):
+    meta_path = index_path + ".meta"
+    if not (os.path.exists(pdf_path) and os.path.exists(index_path) and os.path.exists(meta_path)):
+        return None
+
+    try:
+        with open(meta_path, "r", encoding="utf-8") as m:
+            meta = json.load(m)
+    except Exception:
+        return None
+
+    if not isinstance(meta, dict):
+        return None
+
+    fingerprint = _file_fingerprint(pdf_path)
+    if meta.get("size") == fingerprint["size"] and meta.get("sha256") == fingerprint["sha256"]:
+        print(ready_message, flush=True)
+        with open(index_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    return None
+
+def _write_index_meta(pdf_path: str, index_path: str):
+    meta_path = index_path + ".meta"
+    with open(meta_path, "w", encoding="utf-8") as m:
+        json.dump(_file_fingerprint(pdf_path), m, ensure_ascii=False)
+
 
 def build_majors_plan_index(pdf_path, index_path="majors_plan_index.json"):
     """
@@ -127,20 +177,9 @@ def build_majors_plan_index(pdf_path, index_path="majors_plan_index.json"):
     - يستخدم .meta حتى لا يعيد البناء إلا إذا تغيّر الـ PDF.
     """
     try:
-        meta_path = index_path + ".meta"
-
-        # إعادة استخدام الفهرس إذا لم يتغير الـ PDF
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            try:
-                meta_mtime = float(open(meta_path, "r", encoding="utf-8").read().strip() or "0")
-            except Exception:
-                meta_mtime = 0.0
-
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس خطط التخصصات جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, "✅ فهرس خطط التخصصات جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         if not os.path.exists(pdf_path):
             print(f"❌ ملف التخصصات غير موجود: {pdf_path}", flush=True)
@@ -182,8 +221,7 @@ def build_majors_plan_index(pdf_path, index_path="majors_plan_index.json"):
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(out, f, ensure_ascii=False)
 
-        with open(meta_path, "w", encoding="utf-8") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         print(f"✅ تم بناء فهرس خطط التخصصات: {len(out)} متدرب.", flush=True)
         return out
@@ -360,17 +398,9 @@ def build_index(pdf_path, index_path="schedule_index.json"):
     """فهرسة ملف الجدول (Schedule) لاستخراج مواقع المتدربين حسب أرقامهم."""
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            try:
-                meta_mtime = float(open(meta_path, "r").read())
-            except Exception:
-                meta_mtime = 0.0
-            if pdf_mtime <= meta_mtime:
-                print(f"✅ فهرس {pdf_path} جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         if not os.path.exists(pdf_path):
             print(f"⚠️ الملف {pdf_path} غير موجود.", flush=True)
@@ -394,8 +424,7 @@ def build_index(pdf_path, index_path="schedule_index.json"):
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         elapsed = time.time() - start_time
         print(f"✅ تم فهرسة {len(index)} متدرب من {pdf_path} خلال {elapsed:.1f} ثانية.", flush=True)
@@ -410,14 +439,9 @@ def build_index(pdf_path, index_path="schedule_index.json"):
 def build_remaining_index(pdf_path, index_path="remaining_index.json"):
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print(f"✅ فهرس {pdf_path} جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         print(f"⏳ فهرسة (remaining) الملف: {pdf_path}", flush=True)
         reader = PdfReader(pdf_path)
@@ -439,8 +463,7 @@ def build_remaining_index(pdf_path, index_path="remaining_index.json"):
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         elapsed = time.time() - start_time
         print(f"✅ تم بناء فهرس remaining ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
@@ -464,14 +487,9 @@ def build_permission_index(pdf_path, index_path="permission_index.json"):
     """
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print(f"✅ فهرس {pdf_path} (permission) جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} (permission) جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         if not os.path.exists(pdf_path):
             print(f"⚠️ ملف خطابات التمكين غير موجود: {pdf_path}", flush=True)
@@ -499,8 +517,7 @@ def build_permission_index(pdf_path, index_path="permission_index.json"):
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         elapsed = time.time() - start_time
         print(f"✅ تم بناء فهرس permission ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
@@ -524,14 +541,9 @@ def build_aramco_training_index(pdf_path, index_path="aramco_training_index.json
     """
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path) and os.path.exists(pdf_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print(f"✅ فهرس {pdf_path} (aramco training) جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} (aramco training) جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         if not os.path.exists(pdf_path):
             print(f"⚠️ ملف خطابات تدريب أرامكو غير موجود: {pdf_path}", flush=True)
@@ -556,8 +568,7 @@ def build_aramco_training_index(pdf_path, index_path="aramco_training_index.json
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         elapsed = time.time() - start_time
         print(f"✅ تم بناء فهرس aramco training ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
@@ -584,17 +595,9 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         return index
 
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            try:
-                meta_mtime = float(open(meta_path, "r").read())
-            except Exception:
-                meta_mtime = 0.0
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس الشهادات جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, "✅ فهرس الشهادات جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         print("🔍 بدء فهرسة الشهادات (بدون OCR)...", flush=True)
         reader = PdfReader(pdf_path)
@@ -616,8 +619,7 @@ def build_certificates_index(pdf_path, index_path="certificates_index.json"):
         # حفظ الفهرس
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         print(f"✅ تم بناء فهرس الشهادات بنجاح – عدد الهويات: {len(index)}")
         return index
@@ -657,14 +659,9 @@ def load_ids_from_csv(csv_path: str):
 
 def build_majors_index(pdf_path, index_path="majors_index.json"):
     try:
-        meta_path = index_path + ".meta"
-        if os.path.exists(index_path) and os.path.exists(meta_path):
-            pdf_mtime = os.path.getmtime(pdf_path)
-            meta_mtime = float(open(meta_path, "r").read())
-            if pdf_mtime <= meta_mtime:
-                print("✅ فهرس التخصصات جاهز مسبقًا.", flush=True)
-                with open(index_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+        cached = _load_index_if_current(pdf_path, index_path, "✅ فهرس التخصصات جاهز مسبقًا.")
+        if cached is not None:
+            return cached
 
         print(f"🔍 بناء فهرس التخصصات {pdf_path} ...", flush=True)
         reader = PdfReader(pdf_path)
@@ -683,8 +680,7 @@ def build_majors_index(pdf_path, index_path="majors_index.json"):
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
-        with open(meta_path, "w") as m:
-            m.write(str(os.path.getmtime(pdf_path)))
+        _write_index_meta(pdf_path, index_path)
 
         print(f"✅ تم بناء فهرس التخصصات ({len(index)} متدرب).", flush=True)
         return index
