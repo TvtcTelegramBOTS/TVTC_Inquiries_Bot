@@ -17,3 +17,6 @@ env/
 # Jupyter / logs
 *.ipynb_checkpoints
 *.log
+
+# Runtime temp files
+tmp/

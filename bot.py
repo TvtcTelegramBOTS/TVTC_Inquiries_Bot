@@ -9,6 +9,8 @@ import time
 import asyncio
 import threading
 import subprocess
+import shutil
+import uuid
 import pandas as pd
 import unicodedata
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -29,6 +31,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
+from telegram.error import NetworkError, TimedOut
 from PyPDF2 import PdfReader, PdfWriter
 
 # ضمان طباعة عربية مباشرة
@@ -106,16 +109,80 @@ if not BOT_TOKEN:
 STATUS = {
     "running": False,
     "telegram_connected": False,
+    "indexes_ready": False,
     "indexing": False,
     "current_file": "",
     "index_progress": 0.0,   # 0..100
     "last_user": ""
 }
 _status_lock = threading.Lock()
+INDEXES_READY = threading.Event()
+SESSION_TTL_SECONDS = 30 * 60
+TEMP_ROOT = os.environ.get("BOT_TEMP_DIR", "tmp")
 
 def _set_status(**kwargs):
     with _status_lock:
         STATUS.update(kwargs)
+
+def _mask_identifier(value: str, visible_prefix: int = 3, visible_suffix: int = 3) -> str:
+    value = str(value or "")
+    if len(value) <= visible_prefix + visible_suffix:
+        return "*" * len(value)
+    return f"{value[:visible_prefix]}***{value[-visible_suffix:]}"
+
+def _log_user_input(txt: str, context: ContextTypes.DEFAULT_TYPE):
+    normalized = convert_arabic_to_english(txt)
+    if re.fullmatch(r"44\d{7}", normalized):
+        event = f"student_id={_mask_identifier(normalized)}"
+    elif re.fullmatch(r"[0-9٠-٩]{10}", txt):
+        event = "national_id=<hidden>"
+    elif txt.startswith("/"):
+        event = f"command={txt.split(maxsplit=1)[0]}"
+    elif txt:
+        event = f"text_length={len(txt)}"
+    else:
+        event = "empty_message"
+
+    _set_status(last_user=event)
+    print(f"💬 المستخدم: {event}", flush=True)
+
+async def _reply_indexes_not_ready(update: Update):
+    status = _get_status()
+    current_file = status.get("current_file") or "ملفات البيانات"
+    progress = status.get("index_progress") or 0.0
+    await update.message.reply_text(
+        "⏳ البوت يجهز بيانات الطلاب الآن. حاول بعد قليل.\n"
+        f"الملف الحالي: {current_file} ({progress:.0f}%)"
+    )
+
+async def _ensure_indexes_ready(update: Update) -> bool:
+    if INDEXES_READY.is_set():
+        return True
+    await _reply_indexes_not_ready(update)
+    return False
+
+def _mark_authenticated(context: ContextTypes.DEFAULT_TYPE, student_id: str):
+    context.user_data["student_id"] = student_id
+    context.user_data["authenticated_at"] = time.time()
+
+async def _expire_session_if_needed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if "student_id" not in context.user_data:
+        return False
+
+    authenticated_at = context.user_data.get("authenticated_at")
+    if not authenticated_at:
+        context.user_data["authenticated_at"] = time.time()
+        return False
+
+    if time.time() - float(authenticated_at) <= SESSION_TTL_SECONDS:
+        return False
+
+    context.user_data.clear()
+    await update.message.reply_text(
+        "⏳ انتهت جلسة الدخول. أرسل رقمك التدريبي لتسجيل الدخول من جديد.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return True
 
 _fingerprint_cache = {}
 
@@ -692,47 +759,45 @@ def build_majors_index(pdf_path, index_path="majors_index.json"):
 
 def initialize_indexes():
     print("🚀 بدء تشغيل النظام وفهرسة الملفات بالخلفية...", flush=True)
+    INDEXES_READY.clear()
+    _set_status(indexes_ready=False)
     try:
         print("\n📂 فهرسة SCHEDULE ...", flush=True)
         INDEXES["schedule"] = build_index(FILES["schedule"])
-        time.sleep(0.3)
 
         print("\n📂 فهرسة REMAINING ...", flush=True)
         INDEXES["remaining"] = build_remaining_index(FILES["remaining"])
-        time.sleep(0.3)
 
         INDEXES["gpa"] = {}
 
         print("\n📂 فهرسة IDs ...", flush=True)
         INDEXES["ids"] = load_ids_from_csv("IDs.csv")
-        time.sleep(0.3)
 
         print("\n📂 فهرسة MAJORS ...", flush=True)
         INDEXES["majors"] = build_majors_index(FILES["majors"])
-        time.sleep(0.3)
 
         # ✅ فهرس سريع: رقم المتدرب -> ملف الخطة (window=1)
         print("\n📂 فهرسة MAJORS PLAN ...", flush=True)
         INDEXES["majors_plan"] = build_majors_plan_index(FILES["majors"])
-        time.sleep(0.3)
 
         print("\n📂 فهرسة CERTIFICATES ...", flush=True)
         INDEXES["certificates"] = build_certificates_index(FILES["certificates"])
-        time.sleep(0.3)
         print("\n📂 فهرسة PERMISSION LETTERS ...", flush=True)
         INDEXES["permission"] = build_permission_index(FILES["permission"])
-        time.sleep(0.3)
 
         print("\n📂 فهرسة ARAMCO TRAINING LETTERS ...", flush=True)
         INDEXES["aramco_training"] = build_aramco_training_index(FILES["aramco_training"])
-        time.sleep(0.3)
 
         
         INDEXES["advisor"] = None
+        INDEXES_READY.set()
+        _set_status(indexes_ready=True)
         print("\n----------------------------", flush=True)
         print("✅ جميع الفهارس جاهزة بنجاح.", flush=True)
 
     except Exception as e:
+        INDEXES_READY.clear()
+        _set_status(indexes_ready=False)
         print("❌ خطأ أثناء التهيئة:", e, flush=True)
         import traceback
         traceback.print_exc()
@@ -782,18 +847,146 @@ async def safe_delete_message(message):
     except Exception:
         pass
 
-async def send_advisor(update, context, student_id):
-    csv_path = FILES.get("advisor")
-    if not os.path.exists(csv_path):
-        await update.message.reply_text("❌ ملف المرشد غير متاح حالياً.")
-        return
-    sent_msg = await update.message.reply_text("👨‍🏫 جاري البحث عن مرشدك التدريبي...")
+class UserFacingError(Exception):
+    pass
+
+def _make_temp_dir(service: str) -> str:
+    os.makedirs(TEMP_ROOT, exist_ok=True)
+    tmpdir = os.path.join(TEMP_ROOT, f"tvtc_{service}_{uuid.uuid4().hex}")
+    os.makedirs(tmpdir, exist_ok=False)
+    return tmpdir
+
+def _write_pdf_subset(reader: PdfReader, pages, output_file: str):
+    writer = PdfWriter()
+    for page_index in pages:
+        writer.add_page(reader.pages[page_index])
+    with open(output_file, "wb") as f:
+        writer.write(f)
+
+def _compress_or_original(output_file: str, compressed_file: str) -> str:
+    success = compress_pdf_with_ghostscript(output_file, compressed_file)
+    if not success:
+        print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
+        return output_file
+    return compressed_file
+
+def _prepare_pdf_document(service: str, student_id: str):
+    pdf_path = FILES.get(service)
+    index = INDEXES.get(service) or {}
+    if not pdf_path or not os.path.exists(pdf_path):
+        raise UserFacingError("❌ الملف المطلوب غير متاح حالياً.")
+
+    tmpdir = _make_temp_dir(service)
     try:
-        df = pd.read_csv(csv_path, encoding='utf-8', dtype=str)
-    except Exception as e:
-        await sent_msg.delete()
-        await update.message.reply_text(f"❌ خطأ في قراءة ملف المرشدين: {e}")
-        return
+        reader = PdfReader(pdf_path)
+
+        if service == "certificates":
+            ids_map = INDEXES.get("ids") or {}
+            student_info = ids_map.get(student_id, {})
+            nid_clean = normalize_arabic_text_v2(str(student_info.get("nid")))
+            pages = sorted(set(index.get(nid_clean, [])))
+            if not nid_clean or not pages:
+                raise UserFacingError("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
+
+            output_file = os.path.join(tmpdir, "certificates.pdf")
+            compressed_file = os.path.join(tmpdir, "compressed_certificates.pdf")
+            _write_pdf_subset(reader, pages, output_file)
+            document_path = _compress_or_original(output_file, compressed_file)
+            return {
+                "path": document_path,
+                "filename": f"certificates_{student_id}.pdf",
+                "caption": f"📜 شهادات البرامج الخاصة بالمتدرب رقم {student_id}",
+                "tmpdir": tmpdir,
+            }
+
+        if service in ("permission", "aramco_training"):
+            service_config = {
+                "permission": {
+                    "missing": "⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.",
+                    "output": "permission.pdf",
+                    "compressed": "compressed_permission.pdf",
+                    "filename": f"permission_{student_id}.pdf",
+                    "caption": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
+                },
+                "aramco_training": {
+                    "missing": "⚠️ لا يوجد خطاب تدريب أرامكو مرتبط بهذا الرقم التدريبي.",
+                    "output": "aramco_training.pdf",
+                    "compressed": "compressed_aramco_training.pdf",
+                    "filename": f"aramco_training_{student_id}.pdf",
+                    "caption": f"🏢 خطاب تدريب أرامكو للمتدرب رقم {student_id}",
+                },
+            }[service]
+
+            pages = sorted(set(index.get(student_id, [])))
+            if not pages:
+                raise UserFacingError(service_config["missing"])
+
+            output_file = os.path.join(tmpdir, service_config["output"])
+            compressed_file = os.path.join(tmpdir, service_config["compressed"])
+            _write_pdf_subset(reader, pages, output_file)
+            document_path = _compress_or_original(output_file, compressed_file)
+            return {
+                "path": document_path,
+                "filename": service_config["filename"],
+                "caption": service_config["caption"],
+                "tmpdir": tmpdir,
+            }
+
+        if service == "remaining":
+            pages = sorted(set(index.get(student_id, [])))
+            if not pages:
+                raise UserFacingError(f"❌ لم يتم العثور على مقررات المتدرب {student_id}.")
+        else:
+            if student_id not in index:
+                raise UserFacingError("❌ لم يتم العثور على بياناتك.")
+
+            start = index[student_id]
+            sorted_students = sorted(index.items(), key=lambda x: x[1])
+            end = len(reader.pages)
+            for _, page_idx in sorted_students:
+                if page_idx > start:
+                    end = page_idx
+                    break
+            pages = range(start, end)
+
+        output_file = os.path.join(tmpdir, f"{service}.pdf")
+        compressed_file = os.path.join(tmpdir, f"compressed_{service}.pdf")
+        _write_pdf_subset(reader, pages, output_file)
+        document_path = _compress_or_original(output_file, compressed_file)
+
+        captions = {
+            "schedule": f"📄 جدول المتدرب رقم {student_id}",
+            "remaining": f"📚 المقررات المتبقية للمتدرب رقم {student_id}",
+        }
+        return {
+            "path": document_path,
+            "filename": f"{service}_{student_id}.pdf",
+            "caption": captions.get(service, f"📄 ملف {service} للمتدرب {student_id}"),
+            "tmpdir": tmpdir,
+        }
+
+    except Exception:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+
+async def _reply_document_with_retry(message, document_path: str, filename: str, caption: str):
+    for attempt in range(2):
+        try:
+            with open(document_path, "rb") as f:
+                await message.reply_document(
+                    f,
+                    filename=filename,
+                    caption=caption
+                )
+            return
+        except (NetworkError, TimedOut):
+            if attempt == 1:
+                raise
+            await asyncio.sleep(2)
+
+def _lookup_advisor(student_id: str):
+    csv_path = FILES.get("advisor")
+    df = pd.read_csv(csv_path, encoding='utf-8', dtype=str)
 
     advisor_name = None
     mask = df.apply(lambda row: row.astype(str).str.contains(student_id, regex=False, na=False).any(), axis=1)
@@ -807,7 +1000,35 @@ async def send_advisor(update, context, student_id):
                 advisor_name = re.sub(r"مرشد أكاديمي", "", advisor_name)
                 advisor_name = advisor_name.replace(",", "").replace('"', "").strip()
                 break
-    await sent_msg.delete()
+    return advisor_name
+
+def _lookup_gpa(student_id: str):
+    reader = PdfReader(FILES.get("gpa"))
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        for line in text.splitlines():
+            if student_id in line:
+                match = re.search(r"\b\d\.\d{2}\b", line)
+                if match:
+                    return match.group(0)
+    return None
+
+async def send_advisor(update, context, student_id):
+    csv_path = FILES.get("advisor")
+    if not os.path.exists(csv_path):
+        await update.message.reply_text("❌ ملف المرشد غير متاح حالياً.")
+        return
+    sent_msg = await update.message.reply_text("👨‍🏫 جاري البحث عن مرشدك التدريبي...")
+    try:
+        advisor_name = await asyncio.to_thread(_lookup_advisor, student_id)
+    except Exception as e:
+        await safe_delete_message(sent_msg)
+        await update.message.reply_text("❌ خطأ في قراءة ملف المرشدين.")
+        import traceback
+        traceback.print_exc()
+        return
+
+    await safe_delete_message(sent_msg)
     if advisor_name:
         await update.message.reply_text(f"👨‍🏫 مرشدك التدريبي هو:\nأ. {advisor_name}")
     else:
@@ -819,25 +1040,16 @@ async def send_gpa(update, context, student_id):
         await update.message.reply_text("❌ ملف المعدل غير متاح حالياً.")
         return
     sent_msg = await update.message.reply_text("🎓 جاري البحث عن معدلك...")
-    gpa_value = None
     try:
-        reader = PdfReader(pdf_path)
-        for page in reader.pages:
-            text = page.extract_text() or ""
-            for line in text.splitlines():
-                if student_id in line:
-                    match = re.search(r"\b\d\.\d{2}\b", line)
-                    if match:
-                        gpa_value = match.group(0)
-                        break
-            if gpa_value:
-                break
+        gpa_value = await asyncio.to_thread(_lookup_gpa, student_id)
     except Exception as e:
-        await sent_msg.delete()
-        await update.message.reply_text(f"❌ خطأ في قراءة ملف المعدل: {e}")
+        await safe_delete_message(sent_msg)
+        await update.message.reply_text("❌ خطأ في قراءة ملف المعدل.")
+        import traceback
+        traceback.print_exc()
         return
 
-    await sent_msg.delete()
+    await safe_delete_message(sent_msg)
     if gpa_value:
         await update.message.reply_text(f"🎓 معدلك هو: {gpa_value}")
     else:
@@ -901,6 +1113,10 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         await update.message.reply_text("⚠️ الرجاء إدخال رقمك التدريبي أولاً.")
         return
 
+    if not INDEXES_READY.is_set():
+        await _reply_indexes_not_ready(update)
+        return
+
     if service == "advisor":
         await send_advisor(update, context, student_id)
         return
@@ -920,172 +1136,30 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
     }
     sent_msg = await update.message.reply_text(messages.get(service, "⏳ جاري تجهيز الملف..."))
 
-    pdf_path = FILES.get(service)
-    index = INDEXES.get(service)
-    if not pdf_path or not os.path.exists(pdf_path):
-        await safe_delete_message(sent_msg)
-        await update.message.reply_text("❌ الملف المطلوب غير متاح حالياً.")
-        return
-
-    output_file = None
-    compressed = None
+    prepared = None
 
     try:
-        reader = PdfReader(pdf_path)
-        writer = PdfWriter()
+        prepared = await asyncio.to_thread(_prepare_pdf_document, service, student_id)
+        await _reply_document_with_retry(
+            update.message,
+            prepared["path"],
+            prepared["filename"],
+            prepared["caption"]
+        )
 
-        if service == "certificates":
-            pdf_path = FILES.get("certificates")
-            index = INDEXES.get("certificates")
-            ids_map = INDEXES.get("ids") or {}
-            student_info = ids_map.get(student_id, {})
-            nid = student_info.get("nid")
-
-            # ✅ تطبيع رقم الهوية القادم من CSV
-            nid_clean = normalize_arabic_text_v2(str(nid))
-
-            if not nid_clean or nid_clean not in index:
-                await safe_delete_message(sent_msg)
-                await update.message.reply_text("⚠️ لم يتم العثور على شهادات لهذا المتدرب.")
-                return
-
-            # استخدام nid_clean بدل nid
-            for i in index[nid_clean]:
-                writer.add_page(reader.pages[i])
-    
-            output_file = f"certificates_{student_id}.pdf"
-            with open(output_file, "wb") as f:
-                writer.write(f)
-
-            compressed = f"compressed_certificates_{student_id}.pdf"
-            success = compress_pdf_with_ghostscript(output_file, compressed)
-            if not success:
-                compressed = output_file
-
-            with open(compressed, "rb") as f:
-                await update.message.reply_document(
-                    f,
-                    filename=os.path.basename(compressed),
-                    caption=f"📜 شهادات البرامج الخاصة بالمتدرب رقم {student_id}"
-                )
-
-            await safe_delete_message(sent_msg)
-            return
-
-        if service in ("permission", "aramco_training"):
-            service_config = {
-                "permission": {
-                    "missing": "⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.",
-                    "output": f"permission_{student_id}.pdf",
-                    "compressed": f"compressed_permission_{student_id}.pdf",
-                    "filename": f"permission_{student_id}.pdf",
-                    "caption": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
-                },
-                "aramco_training": {
-                    "missing": "⚠️ لا يوجد خطاب تدريب أرامكو مرتبط بهذا الرقم التدريبي.",
-                    "output": f"aramco_training_{student_id}.pdf",
-                    "compressed": f"compressed_aramco_training_{student_id}.pdf",
-                    "filename": f"aramco_training_{student_id}.pdf",
-                    "caption": f"🏢 خطاب تدريب أرامكو للمتدرب رقم {student_id}",
-                },
-            }[service]
-
-            pages = sorted(set(index.get(student_id, [])))
-            if not pages:
-                await safe_delete_message(sent_msg)
-                await update.message.reply_text(service_config["missing"])
-                return
-
-            for i in pages:
-                writer.add_page(reader.pages[i])
-
-            output_file = service_config["output"]
-            with open(output_file, "wb") as f:
-                writer.write(f)
-
-            compressed = service_config["compressed"]
-            success = compress_pdf_with_ghostscript(output_file, compressed)
-            if not success:
-                compressed = output_file
-
-            with open(compressed, "rb") as f:
-                await update.message.reply_document(
-                    f,
-                    filename=service_config["filename"],
-                    caption=service_config["caption"]
-                )
-
-            await safe_delete_message(sent_msg)
-            return
-
-        if service == "remaining":
-            pages = index.get(student_id, [])
-            if not pages:
-                await safe_delete_message(sent_msg)
-                await update.message.reply_text(f"❌ لم يتم العثور على مقررات المتدرب {student_id}.")
-                return
-            for i in pages:
-                writer.add_page(reader.pages[i])
-        else:
-            if student_id not in index:
-                await safe_delete_message(sent_msg)
-                await update.message.reply_text("❌ لم يتم العثور على بياناتك.")
-                return
-            start = index[student_id]
-            sorted_students = sorted(index.items(), key=lambda x: x[1])
-            end = len(reader.pages)
-            for sid, page_idx in sorted_students:
-                if page_idx > start:
-                    end = page_idx
-                    break
-            for i in range(start, end):
-                writer.add_page(reader.pages[i])
-
-        output_file = f"{service}_{student_id}.pdf"
-        with open(output_file, "wb") as f:
-            writer.write(f)
-
-        compressed = f"compressed_{service}_{student_id}.pdf"
-        if service == "remaining":
-            success = compress_pdf_with_ghostscript(output_file, compressed)
-            if not success:
-                print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
-                compressed = output_file
-        else:
-            success = compress_pdf_with_ghostscript(output_file, compressed)
-            if not success:
-                print("⚠️ فشل الضغط، سيتم إرسال النسخة الأصلية.", flush=True)
-                compressed = output_file
-
-        captions = {
-            "schedule": f"📄 جدول المتدرب رقم {student_id}",
-            "remaining": f"📚 المقررات المتبقية للمتدرب رقم {student_id}",
-            "gpa": f"🎓 المعدل للمتدرب رقم {student_id}",
-            "certificates": f"📜 شهادات البرامج الخاصة بالمتدرب {student_id}",
-            "permission": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
-        }
-
-        with open(compressed, "rb") as f:
-            await update.message.reply_document(
-                f,
-                filename=f"{service}_{student_id}.pdf",
-                caption=captions.get(service, f"📄 ملف {service} للمتدرب {student_id}")
-            )
-
+    except UserFacingError as e:
+        await update.message.reply_text(str(e))
+    except (NetworkError, TimedOut):
+        await update.message.reply_text("⚠️ تعذر إرسال الملف بسبب مهلة الاتصال. حاول مرة أخرى.")
     except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ أثناء تجهيز الملف: {e}")
+        await update.message.reply_text("❌ حدث خطأ أثناء تجهيز الملف. حاول مرة أخرى لاحقاً.")
         import traceback
         traceback.print_exc()
 
     finally:
         await safe_delete_message(sent_msg)
-        try:
-            if output_file and os.path.exists(output_file):
-                os.remove(output_file)
-            if compressed and os.path.exists(compressed) and compressed != output_file:
-                os.remove(compressed)
-        except Exception:
-            pass
+        if prepared and prepared.get("tmpdir"):
+            shutil.rmtree(prepared["tmpdir"], ignore_errors=True)
 
 # =========================
 # دالة مساعدة لبناء لوحة الأزرار
@@ -1207,8 +1281,7 @@ async def countdown_message(msg, chat_id, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     txt = (update.message.text or "").strip()
     student_id = convert_arabic_to_english(txt)
-    _set_status(last_user=student_id)
-    print(f"💬 المستخدم: {txt}", flush=True)
+    _log_user_input(txt, context)
 
     # 🚨 إذا كان المستخدم في فترة العد التنازلي وقام بإرسال أي رسالة → ألغِ العد فوراً
     if "logout_task" in context.user_data:
@@ -1240,6 +1313,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if await _expire_session_if_needed(update, context):
+        return
+
     # =============================
     # تسجيل الخروج
     # =============================
@@ -1268,6 +1344,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         task = asyncio.create_task(countdown_message(sent_msg, update.effective_chat.id, context))
         context.user_data["logout_task"] = task
         context.user_data["logout_message_id"] = sent_msg.message_id
+        return
+
+    if not await _ensure_indexes_ready(update):
         return
 
         # ========= مرحلة التحقق على خطوتين =========
@@ -1301,7 +1380,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ رقم الهوية غير مطابق لرقم المتدرب. حاول مرة أخرى.")
             return
 
-        context.user_data["student_id"] = pending_id
+        _mark_authenticated(context, pending_id)
         context.user_data.pop("pending_student_id", None)
 
         full_name = rec.get("name", "").strip()
@@ -1355,7 +1434,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         service = mapping.get(txt)
         if service:
-            sid = context.user_data.get("student_id")
             await send_pdf(update, context, service)
             return
 
@@ -1439,6 +1517,9 @@ def main():
             if not last_id:
                 await query.edit_message_text("⚠️ لا يوجد رقم تدريبي سابق لإعادة تسجيل الدخول.")
                 return
+            if not INDEXES_READY.is_set():
+                await query.edit_message_text("⏳ البوت يجهز بيانات الطلاب الآن. حاول بعد قليل.")
+                return
 
             # ✅ حذف رسالة العدّ التنازلي مع الزر فورًا
             try:
@@ -1447,7 +1528,7 @@ def main():
                 pass
 
             # ✅ إعادة تخزين رقم المتدرب
-            context.user_data["student_id"] = last_id
+            _mark_authenticated(context, last_id)
 
             # ✅ إرسال لوحة الخدمات فقط مع رسالة ترحيبية نظيفة
             keyboard = build_main_keyboard(last_id)
