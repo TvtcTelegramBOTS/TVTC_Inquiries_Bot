@@ -90,10 +90,8 @@ FILES = {
     "ids": "IDs.csv",
     "certificates": "Certificates.pdf",
     "permission": "permission_to_conduct_research.pdf",
-    "aramco_training": os.path.join(
-        "خطابات_طلب_فرصة_تدريبية_في_شركة_ارامكو_للفصل_الأول_1448.pdf",
-        "خطابات_طلب_فرصة_تدريبية_في_شركة_ارامكو_للفصل_الأول_1448.pdf",
-    ),
+    "cooperative_training_letters": "خطابات_التدريب_التعاوني_الفصل_الأول_1448.pdf",
+    "cooperative_training_certificates": "شهادات_التدريب_التعاوني_للفصل_الثاني_1447هـ_1.pdf",
 }
 
 
@@ -455,7 +453,8 @@ INDEXES = {
     "ids": {},
     "certificates": {},  # ← أضف هذا السطر
     "permission": {},
-    "aramco_training": {},
+    "cooperative_training_letters": {},
+    "cooperative_training_certificates": {},
 }
 
 # =========================
@@ -599,24 +598,24 @@ def build_permission_index(pdf_path, index_path="permission_index.json"):
 
 
 # ==================================================
-# 🏢 فهرسة خطابات تدريب أرامكو
+# فهرسة مستندات صفحة لكل متدرب
 # ==================================================
-def build_aramco_training_index(pdf_path, index_path="aramco_training_index.json"):
+def build_student_page_index(pdf_path, index_path, label):
     """
-    فهرسة ملف خطابات تدريب أرامكو بناءً على رقم المتدرب (44xxxxxxx).
+    فهرسة ملفات PDF التي تحتوي صفحة/صفحات مستقلة لكل متدرب حسب الرقم التدريبي (44xxxxxxx).
     النتيجة: {student_id: [page_idx, ...]}.
     """
     _set_status(indexing=True, current_file=os.path.basename(pdf_path), index_progress=0.0)
     try:
-        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} (aramco training) جاهز مسبقًا.")
+        cached = _load_index_if_current(pdf_path, index_path, f"✅ فهرس {pdf_path} ({label}) جاهز مسبقًا.")
         if cached is not None:
             return cached
 
         if not os.path.exists(pdf_path):
-            print(f"⚠️ ملف خطابات تدريب أرامكو غير موجود: {pdf_path}", flush=True)
+            print(f"⚠️ ملف {label} غير موجود: {pdf_path}", flush=True)
             return {}
 
-        print(f"⏳ فهرسة (aramco training) الملف: {pdf_path}", flush=True)
+        print(f"⏳ فهرسة ({label}) الملف: {pdf_path}", flush=True)
         reader = PdfReader(pdf_path)
         total_pages = len(reader.pages)
         index = {}
@@ -631,18 +630,18 @@ def build_aramco_training_index(pdf_path, index_path="aramco_training_index.json
             percent = (i / total_pages) * 100 if total_pages else 100.0
             _set_status(index_progress=percent)
             if i % 10 == 0 or i == total_pages:
-                print(f"فهرسة aramco training: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
+                print(f"فهرسة {label}: الصفحة {i}/{total_pages} ({percent:.1f}%)", flush=True)
 
         with open(index_path, "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False)
         _write_index_meta(pdf_path, index_path)
 
         elapsed = time.time() - start_time
-        print(f"✅ تم بناء فهرس aramco training ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
+        print(f"✅ تم بناء فهرس {label} ({len(index)} متدرب) خلال {elapsed:.1f} ثانية.", flush=True)
         return index
 
     except Exception as e:
-        print("❌ خطأ أثناء فهرسة aramco training:", e, flush=True)
+        print(f"❌ خطأ أثناء فهرسة {label}:", e, flush=True)
         import traceback; traceback.print_exc()
         return {}
     finally:
@@ -785,8 +784,19 @@ def initialize_indexes():
         print("\n📂 فهرسة PERMISSION LETTERS ...", flush=True)
         INDEXES["permission"] = build_permission_index(FILES["permission"])
 
-        print("\n📂 فهرسة ARAMCO TRAINING LETTERS ...", flush=True)
-        INDEXES["aramco_training"] = build_aramco_training_index(FILES["aramco_training"])
+        print("\n📂 فهرسة COOPERATIVE TRAINING LETTERS ...", flush=True)
+        INDEXES["cooperative_training_letters"] = build_student_page_index(
+            FILES["cooperative_training_letters"],
+            "cooperative_training_letters_index.json",
+            "cooperative training letters",
+        )
+
+        print("\n📂 فهرسة COOPERATIVE TRAINING CERTIFICATES ...", flush=True)
+        INDEXES["cooperative_training_certificates"] = build_student_page_index(
+            FILES["cooperative_training_certificates"],
+            "cooperative_training_certificates_index.json",
+            "cooperative training certificates",
+        )
 
         
         INDEXES["advisor"] = None
@@ -899,7 +909,11 @@ def _prepare_pdf_document(service: str, student_id: str):
                 "tmpdir": tmpdir,
             }
 
-        if service in ("permission", "aramco_training"):
+        if service in (
+            "permission",
+            "cooperative_training_letters",
+            "cooperative_training_certificates",
+        ):
             service_config = {
                 "permission": {
                     "missing": "⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.",
@@ -908,12 +922,19 @@ def _prepare_pdf_document(service: str, student_id: str):
                     "filename": f"permission_{student_id}.pdf",
                     "caption": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
                 },
-                "aramco_training": {
-                    "missing": "⚠️ لا يوجد خطاب تدريب أرامكو مرتبط بهذا الرقم التدريبي.",
-                    "output": "aramco_training.pdf",
-                    "compressed": "compressed_aramco_training.pdf",
-                    "filename": f"aramco_training_{student_id}.pdf",
-                    "caption": f"🏢 خطاب تدريب أرامكو للمتدرب رقم {student_id}",
+                "cooperative_training_letters": {
+                    "missing": "⚠️ لا يوجد خطاب تدريب تعاوني مرتبط بهذا الرقم التدريبي.",
+                    "output": "cooperative_training_letters.pdf",
+                    "compressed": "compressed_cooperative_training_letters.pdf",
+                    "filename": f"cooperative_training_letters_{student_id}.pdf",
+                    "caption": f"خطاب التدريب التعاوني للمتدرب رقم {student_id}",
+                },
+                "cooperative_training_certificates": {
+                    "missing": "⚠️ لا توجد شهادة تدريب تعاوني مرتبطة بهذا الرقم التدريبي.",
+                    "output": "cooperative_training_certificates.pdf",
+                    "compressed": "compressed_cooperative_training_certificates.pdf",
+                    "filename": f"cooperative_training_certificates_{student_id}.pdf",
+                    "caption": f"شهادة التدريب التعاوني للمتدرب رقم {student_id}",
                 },
             }[service]
 
@@ -1132,7 +1153,8 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         "remaining": "📚 جاري حصر مقرراتك المتبقية...",
         "certificates": "📜 جاري تجهيز شهاداتك...",
         "permission": "✉️ جاري تجهيز خطاب التمكين...",
-        "aramco_training": "🏢 جاري تجهيز خطاب تدريب أرامكو...",
+        "cooperative_training_letters": "جاري تجهيز خطاب التدريب التعاوني...",
+        "cooperative_training_certificates": "جاري تجهيز شهادة التدريب التعاوني...",
     }
     sent_msg = await update.message.reply_text(messages.get(service, "⏳ جاري تجهيز الملف..."))
 
@@ -1168,7 +1190,8 @@ def build_main_keyboard(student_id: str):
     """بناء لوحة الخدمات بناءً على حالة المتدرب (هل له مقررات أو شهادات)."""
     has_remaining = student_id in INDEXES.get("remaining", {})
     has_permission = student_id in INDEXES.get("permission", {})
-    has_aramco_training = student_id in INDEXES.get("aramco_training", {})
+    has_cooperative_training_letters = student_id in INDEXES.get("cooperative_training_letters", {})
+    has_cooperative_training_certificates = student_id in INDEXES.get("cooperative_training_certificates", {})
 
     # نحصل على رقم الهوية من فهرس IDs
     ids_map = INDEXES.get("ids", {})
@@ -1209,9 +1232,12 @@ def build_main_keyboard(student_id: str):
         keyboard.insert(insert_at, [KeyboardButton("✉️ خطابات التمكين")])
         insert_at += 1
 
-    # نضيف زر خطاب تدريب أرامكو فقط إذا له خطاب
-    if has_aramco_training:
-        keyboard.insert(insert_at, [KeyboardButton("🏢 خطاب تدريب أرامكو")])
+    if has_cooperative_training_letters:
+        keyboard.insert(insert_at, [KeyboardButton("خطابات التدريب التعاوني")])
+        insert_at += 1
+
+    if has_cooperative_training_certificates:
+        keyboard.insert(insert_at, [KeyboardButton("شهادات التدريب التعاوني")])
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -1406,7 +1432,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📑 خطتي التفصيلية",
         "📅 الأسبوع الحالي",
         "✉️ خطابات التمكين",
-        "🏢 خطاب تدريب أرامكو"
+        "خطابات التدريب التعاوني",
+        "شهادات التدريب التعاوني",
     ]
 
     if txt in protected_buttons:
@@ -1429,7 +1456,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📑 خطتي التفصيلية": "detailed_plan",
             "📜 شهادات البرامج المساندة": "certificates",
             "✉️ خطابات التمكين": "permission",
-            "🏢 خطاب تدريب أرامكو": "aramco_training",
+            "خطابات التدريب التعاوني": "cooperative_training_letters",
+            "شهادات التدريب التعاوني": "cooperative_training_certificates",
         }
 
         service = mapping.get(txt)
