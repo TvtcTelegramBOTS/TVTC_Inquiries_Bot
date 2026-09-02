@@ -89,7 +89,7 @@ FILES = {
     "majors": "TNumbers with majors.pdf",
     "ids": "IDs.csv",
     "certificates": "Certificates.pdf",
-    "permission": "permission_to_conduct_research.pdf",
+    "permission": "خطابات_تمكين_المشروع_الانتاجي_للفصل_الأول_1448.pdf",
     "cooperative_training_letters": "خطابات_التدريب_التعاوني_الفصل_الأول_1448.pdf",
     "cooperative_training_certificates": "شهادات_التدريب_التعاوني_للفصل_الثاني_1447هـ_1.pdf",
 }
@@ -916,11 +916,11 @@ def _prepare_pdf_document(service: str, student_id: str):
         ):
             service_config = {
                 "permission": {
-                    "missing": "⚠️ لا يوجد خطاب تمكين مرتبط بهذا الرقم التدريبي.",
+                    "missing": "⚠️ لا يوجد خطاب تمكين للمشروع الإنتاجي مرتبط بهذا الرقم التدريبي.",
                     "output": "permission.pdf",
                     "compressed": "compressed_permission.pdf",
                     "filename": f"permission_{student_id}.pdf",
-                    "caption": f"✉️ خطاب التمكين للمتدرب رقم {student_id}",
+                    "caption": f"خطاب تمكين المشروع الإنتاجي للمتدرب رقم {student_id}",
                 },
                 "cooperative_training_letters": {
                     "missing": "⚠️ لا يوجد خطاب تدريب تعاوني مرتبط بهذا الرقم التدريبي.",
@@ -1152,7 +1152,7 @@ async def send_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE, service: 
         "schedule": "📄 جاري تجهيز جدولك...",
         "remaining": "📚 جاري حصر مقرراتك المتبقية...",
         "certificates": "📜 جاري تجهيز شهاداتك...",
-        "permission": "✉️ جاري تجهيز خطاب التمكين...",
+        "permission": "جاري تجهيز خطاب التمكين...",
         "cooperative_training_letters": "جاري تجهيز خطاب التدريب التعاوني...",
         "cooperative_training_certificates": "جاري تجهيز شهادة التدريب التعاوني...",
     }
@@ -1229,7 +1229,7 @@ def build_main_keyboard(student_id: str):
 
     # نضيف زر خطابات التمكين فقط إذا له خطاب
     if has_permission:
-        keyboard.insert(insert_at, [KeyboardButton("✉️ خطابات التمكين")])
+        keyboard.insert(insert_at, [KeyboardButton("خطابات التمكين")])
         insert_at += 1
 
     if has_cooperative_training_letters:
@@ -1431,6 +1431,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎓 معدلي",
         "📑 خطتي التفصيلية",
         "📅 الأسبوع الحالي",
+        "خطابات التمكين",
         "✉️ خطابات التمكين",
         "خطابات التدريب التعاوني",
         "شهادات التدريب التعاوني",
@@ -1455,6 +1456,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎓 معدلي": "gpa",
             "📑 خطتي التفصيلية": "detailed_plan",
             "📜 شهادات البرامج المساندة": "certificates",
+            "خطابات التمكين": "permission",
             "✉️ خطابات التمكين": "permission",
             "خطابات التدريب التعاوني": "cooperative_training_letters",
             "شهادات التدريب التعاوني": "cooperative_training_certificates",
